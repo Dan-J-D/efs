@@ -1,0 +1,94 @@
+use crate::chunk::{Chunker, UniformEnvelope};
+use crate::crypto::{Cipher, Hasher, Kdf};
+use crate::storage::StorageBackend;
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SiloConfig {
+    pub algorithm: String,
+    pub chunk_size: usize,
+    pub root_node_id: u64,
+    pub data_key: Vec<u8>,
+}
+
+pub mod session;
+
+pub struct SiloManager {
+    kdf: Box<dyn Kdf>,
+    cipher: Box<dyn Cipher>,
+    hasher: Box<dyn Hasher>,
+}
+
+impl SiloManager {
+    pub fn new(kdf: Box<dyn Kdf>, cipher: Box<dyn Cipher>, hasher: Box<dyn Hasher>) -> Self {
+        Self {
+            kdf,
+            cipher,
+            hasher,
+        }
+    }
+
+    pub fn derive_root_key(&self, password: &[u8], silo_id: &str) -> Result<Vec<u8>> {
+        let mut root_key = vec![0u8; 32];
+        let salt = self.hasher.hash(silo_id.as_bytes());
+        self.kdf.derive(password, &salt, &mut root_key)?;
+        Ok(root_key)
+    }
+
+    pub fn derive_root_chunk_name(&self, root_key: &[u8]) -> String {
+        let hash = self.hasher.hash(root_key);
+        hex::encode(hash)
+    }
+
+    pub async fn initialize_silo(
+        &self,
+        storage: &dyn StorageBackend,
+        password: &[u8],
+        silo_id: &str,
+        chunk_size: usize,
+        data_key: Vec<u8>,
+    ) -> Result<()> {
+        let root_key = self.derive_root_key(password, silo_id)?;
+        let root_name = self.derive_root_chunk_name(&root_key);
+
+        let config = SiloConfig {
+            algorithm: "AES-256-GCM".to_string(),
+            chunk_size,
+            root_node_id: 1,
+            data_key,
+        };
+
+        let config_bytes = bincode::serialize(&config)?;
+        let payload_size = UniformEnvelope::payload_size(chunk_size);
+        let padded_config = Chunker::pad(config_bytes, payload_size);
+
+        let (ciphertext, nonce, tag) = self.cipher.encrypt(&root_key, b"root", &padded_config)?;
+        let envelope = UniformEnvelope::new(nonce, tag, ciphertext);
+        let envelope_bytes = envelope.serialize(chunk_size)?;
+
+        storage.put(&root_name, envelope_bytes).await?;
+
+        Ok(())
+    }
+
+    pub async fn load_silo(
+        &self,
+        storage: &dyn StorageBackend,
+        password: &[u8],
+        silo_id: &str,
+    ) -> Result<SiloConfig> {
+        let root_key = self.derive_root_key(password, silo_id)?;
+        let root_name = self.derive_root_chunk_name(&root_key);
+
+        let envelope_bytes = storage.get(&root_name).await?;
+        let envelope = UniformEnvelope::deserialize(&envelope_bytes)?;
+
+        let plaintext = self
+            .cipher
+            .decrypt(&root_key, b"root", &envelope.nonce, &envelope.tag, &envelope.ciphertext)?;
+
+        let config: SiloConfig = bincode::deserialize(&plaintext)?;
+        Ok(config)
+    }
+}

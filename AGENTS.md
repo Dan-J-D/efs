@@ -1,0 +1,96 @@
+# EFS Agent Guidelines
+
+This document provides essential instructions for agentic coding tools operating within the `efs` repository. Adhere to these standards to maintain consistency and safety.
+
+## 1. Execution Commands
+
+The project is a Rust workspace consisting of the `efs` library and `efs-cli`.
+
+### Build & Lint
+- **Build Workspace:** `cargo build`
+- **Build Library:** `cargo build -p efs`
+- **Build CLI:** `cargo build -p efs-cli`
+- **Check (Fast):** `cargo check`
+- **Lint:** `cargo clippy --workspace -- -D warnings`
+- **Format:** `cargo fmt --all`
+
+### Testing
+- **Run all tests:** `cargo test`
+- **Run library tests:** `cargo test -p efs`
+- **Run a specific test file:** `cargo test -p efs --test crypto_tests`
+- **Run a single test function:** `cargo test -p efs --test crypto_tests test_kdf`
+- **Show test output:** `cargo test -- --nocapture`
+
+---
+
+## 2. Code Style & Conventions
+
+### Imports
+- Group imports in the following order:
+  1. Standard library (`std::...`)
+  2. External crates (`anyhow`, `serde`, etc.)
+  3. Internal modules (`crate::...` or `super::...`)
+- Prefer explicit imports over glob imports (avoid `use crate::crypto::*;`).
+
+### Naming Conventions
+- **Files/Modules:** `snake_case` (e.g., `storage/s3.rs`).
+- **Structs/Enums/Traits:** `PascalCase` (e.g., `StorageBackend`).
+- **Functions/Variables:** `snake_case` (e.g., `derive_root_chunk_name`).
+- **Constants:** `SCREAMING_SNAKE_CASE` (e.g., `DEFAULT_CHUNK_SIZE`).
+
+### Error Handling
+- Use `anyhow::Result<T>` for functions that can fail.
+- Use `anyhow::anyhow!("context: {}", error)` for creating ad-hoc errors.
+- Library code should provide meaningful context to errors using `.context("...")`.
+- Avoid `unwrap()` or `expect()` in library code unless in tests or if the invariant is locally guaranteed.
+
+### Concurrency & Async
+- The core logic is asynchronous. Use `tokio` for runtime operations.
+- Use `#[async_trait]` for traits involving I/O (Storage, etc.).
+- Shared state should be wrapped in `Arc<T>` or `Arc<dyn Trait + Send + Sync>`.
+- Use `tokio::sync::Mutex` instead of `std::sync::Mutex` for locks held across `.await` points.
+
+---
+
+## 3. Architecture & Data Structures
+
+### Trait-First Design
+The library decouples logic via traits in `efs/src/lib.rs`. Always implement against traits (`Cipher`, `Hasher`, `StorageBackend`) to allow for mocking and future-proofing.
+
+### The Uniform Envelope
+Data uniformity is critical for deniability.
+- Every chunk must be padded to exactly the configured chunk size (default 1MB).
+- Use `UniformEnvelope` for serialization:
+  ```rust
+  struct UniformEnvelope {
+      nonce: [u8; 12],
+      tag: [u8; 16],
+      ciphertext: Vec<u8>,
+  }
+  ```
+
+### Storage Backends
+- Backends must implement `StorageBackend`.
+- `MirrorOrchestrator` handles the majority logic ($\lfloor N/2 \rfloor + 1$); do not implement retry/mirroring logic inside specific backends like `S3Backend`.
+
+---
+
+## 4. Development Workflow
+
+### Adding Features
+1. Define the interface in the relevant module's `mod.rs` or the root `lib.rs`.
+2. Implement the logic in a submodule.
+3. Write unit tests in the same file or integration tests in `efs/tests/`.
+4. Run `cargo fmt` and `cargo clippy` before finalizing.
+
+### Modifying the CLI
+- The CLI uses `clap` for command parsing.
+- Keep `main.rs` focused on routing; move complex logic into specialized modules like `config.rs` or `session.rs`.
+- Ensure `Config` changes are backward compatible or handled via versioning.
+
+---
+
+## 5. Security Mandates
+- **Secrets:** Never log or store raw passwords or keys. Use KDFs to derive working keys.
+- **Padding:** Always use CSPRNG (`rand::thread_rng()`) for padding noise. Never use zero-padding.
+- **Erasure:** Use crates like `zeroize` for sensitive memory if required by the plan (currently implemented for `argon2` salts).
