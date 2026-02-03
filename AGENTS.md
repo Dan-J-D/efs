@@ -55,17 +55,18 @@ The project is a Rust workspace consisting of the `efs` library and `efs-cli`.
 ## 3. Architecture & Data Structures
 
 ### Trait-First Design
-The library decouples logic via traits in `efs/src/lib.rs`. Always implement against traits (`Cipher`, `Hasher`, `StorageBackend`) to allow for mocking and future-proofing.
+The library decouples logic via traits in `efs/src/lib.rs`. Always implement against traits (`Cipher`, `Hasher`, `Kdf`, `StorageBackend`, `EfsIndex`) to allow for mocking and future-proofing.
 
 ### The Uniform Envelope
 Data uniformity is critical for deniability.
 - Every chunk must be padded to exactly the configured chunk size (default 1MB).
 - Use `UniformEnvelope` for serialization:
   ```rust
-  struct UniformEnvelope {
-      nonce: [u8; 12],
-      tag: [u8; 16],
-      ciphertext: Vec<u8>,
+  #[derive(Serialize, Deserialize)]
+  pub struct UniformEnvelope {
+      pub nonce: [u8; 12],
+      pub tag: [u8; 16],
+      pub ciphertext: Vec<u8>,
   }
   ```
 
@@ -93,4 +94,4 @@ Data uniformity is critical for deniability.
 ## 5. Security Mandates
 - **Secrets:** Never log or store raw passwords or keys. Use KDFs to derive working keys.
 - **Padding:** Always use CSPRNG (`rand::thread_rng()`) for padding noise. Never use zero-padding.
-- **Erasure:** Use crates like `zeroize` for sensitive memory if required by the plan (currently implemented for `argon2` salts).
+- **Erasure:** Use crates like `zeroize` for sensitive memory if required by the plan (e.g., for salts or keys).
