@@ -32,6 +32,7 @@ pub enum EfsEntry {
 #[async_trait]
 pub trait EfsIndex: Send + Sync {
     async fn insert(&self, path: &str, block_ids: Vec<u64>, total_size: u64) -> Result<()>;
+    async fn mkdir(&self, path: &str) -> Result<()>;
     async fn get(&self, path: &str) -> Result<Option<(Vec<u64>, u64)>>;
     async fn get_entry(&self, path: &str) -> Result<Option<EfsEntry>>;
     async fn list(&self) -> Result<Vec<String>>;
@@ -253,6 +254,22 @@ impl Efs {
         Ok(())
     }
 
+    pub async fn mkdir(&mut self, path: &str) -> Result<()> {
+        let path = crate::path::normalize_path(path)?;
+        if let Some(entry) = self.index.get_entry(&path).await? {
+            match entry {
+                EfsEntry::Directory => return Ok(()),
+                EfsEntry::File { .. } => {
+                    return Err(anyhow!(
+                        "Cannot create directory: a file already exists at '{}'",
+                        path
+                    ))
+                }
+            }
+        }
+        self.index.mkdir(&path).await
+    }
+
     pub async fn get(&self, path: &str) -> Result<Vec<u8>> {
         let path = crate::path::normalize_path(path)?;
         let (block_ids, total_size) = self
@@ -309,6 +326,15 @@ impl Efs {
 
         data.truncate(total_size as usize);
         Ok(data)
+    }
+
+    pub async fn list(&self) -> Result<Vec<String>> {
+        self.index.list().await
+    }
+
+    pub async fn list_dir(&self, path: &str) -> Result<Vec<(String, EfsEntry)>> {
+        let path = crate::path::normalize_path(path)?;
+        self.index.list_dir(&path).await
     }
 
     pub async fn delete(&mut self, path: &str) -> Result<()> {
@@ -399,12 +425,11 @@ impl Efs {
             for entry in walkdir::WalkDir::new(path)
                 .into_iter()
                 .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().is_file())
             {
                 let rel_path = entry.path().strip_prefix(path).context("Failed to strip prefix")?;
-                let mut remote_file_path = remote_path.to_string();
-                if !remote_file_path.ends_with('/') {
-                    remote_file_path.push('/');
+                let mut remote_item_path = remote_path.to_string();
+                if !remote_item_path.ends_with('/') && !rel_path.as_os_str().is_empty() {
+                    remote_item_path.push('/');
                 }
                 let rel_path_str = rel_path.to_str().ok_or_else(|| {
                     anyhow!(
@@ -412,10 +437,15 @@ impl Efs {
                         rel_path
                     )
                 })?;
-                remote_file_path.push_str(rel_path_str);
+                remote_item_path.push_str(rel_path_str);
 
-                let data = std::fs::read(entry.path())?;
-                self.put(&remote_file_path, &data).await?;
+                if entry.file_type().is_dir() {
+                    // Always try to create the directory, even if rel_path is empty (the root of upload)
+                    self.mkdir(&remote_item_path).await?;
+                } else {
+                    let data = std::fs::read(entry.path())?;
+                    self.put(&remote_item_path, &data).await?;
+                }
             }
         } else {
             let data = std::fs::read(local_path)?;

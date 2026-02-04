@@ -101,6 +101,44 @@ impl EfsIndex for BtreeIndex {
         Ok(())
     }
 
+    async fn mkdir(&self, path: &str) -> Result<()> {
+        let parts = self.normalize_path(path)?;
+        if parts.is_empty() {
+            return Ok(());
+        }
+
+        let mut current_region = BTREE_REGION_ID;
+        let mut path_so_far = String::new();
+
+        for part in parts {
+            path_so_far.push('/');
+            path_so_far.push_str(&part);
+
+            let mut tree = self.get_tree(current_region)?;
+
+            match tree.get(&part).map_err(|e| anyhow!("{}", e))? {
+                Some(IndexEntry::Directory { region_id }) => {
+                    current_region = region_id;
+                }
+                Some(IndexEntry::File { .. }) => {
+                    return Err(anyhow!("Path component '{}' is a file", part));
+                }
+                None => {
+                    let new_region = self.allocate_region(&path_so_far);
+                    tree.insert(
+                        part.clone(),
+                        IndexEntry::Directory {
+                            region_id: new_region,
+                        },
+                    )
+                    .map_err(|e| anyhow!("{}", e))?;
+                    current_region = new_region;
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn get(&self, path: &str) -> Result<Option<(Vec<u64>, u64)>> {
         match self.get_entry(path).await? {
             Some(EfsEntry::File {

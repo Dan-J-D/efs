@@ -27,6 +27,13 @@ impl EfsIndex for KvIndex {
         Ok(())
     }
 
+    async fn mkdir(&self, path: &str) -> Result<()> {
+        // Flat index does not have explicit directory entries.
+        // We just validate the path.
+        crate::path::normalize_path(path)?;
+        Ok(())
+    }
+
     async fn get(&self, path: &str) -> Result<Option<(Vec<u64>, u64)>> {
         let tree = self.tree.read().await;
         tree.get(&path.to_string())
