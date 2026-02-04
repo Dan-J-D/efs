@@ -57,6 +57,7 @@ enum AppState {
     ConfirmDelete {
         path: String,
     },
+    Deleting,
     Error(String),
 }
 
@@ -787,6 +788,10 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                         KeyCode::Esc | KeyCode::Char('n') => app.state = AppState::Main,
                         KeyCode::Char('y') | KeyCode::Enter => {
                             let p = path.clone();
+                            app.state = AppState::Deleting;
+                            // Force draw to show "Deleting..."
+                            terminal.draw(|f| ui(f, app))?;
+                            
                             if let Some(efs) = &mut app.efs {
                                 if let Err(e) = efs.delete_recursive(&p).await {
                                     app.state = AppState::Error(e.to_string());
@@ -798,6 +803,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                         }
                         _ => {}
                     },
+                    AppState::Deleting => {}
                     AppState::Error(_) => match key.code {
                         KeyCode::Esc | KeyCode::Enter => {
                             app.state = AppState::Login;
@@ -1150,6 +1156,14 @@ fn ui(f: &mut Frame, app: &mut App) {
             let paragraph =
                 Paragraph::new(format!("Are you sure you want to delete '{}'? (y/n)", path))
                     .block(block);
+            f.render_widget(paragraph, size);
+        }
+        AppState::Deleting => {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title("Deleting");
+            let paragraph = Paragraph::new("Deleting directory recursively... please wait.")
+                .block(block);
             f.render_widget(paragraph, size);
         }
         AppState::Error(msg) => {

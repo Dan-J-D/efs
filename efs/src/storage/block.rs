@@ -234,7 +234,9 @@ impl EfsBlockStorage {
 
         {
             let mut fl = self.free_list.lock().unwrap();
-            fl.push(id);
+            if id != 1 {
+                fl.push(id);
+            }
         }
         self.persist_free_list()
             .context("Failed to persist free list after deallocation")?;
@@ -243,9 +245,29 @@ impl EfsBlockStorage {
     }
 
     pub fn deallocate_blocks(&mut self, region_id: RegionId, ids: Vec<BlockId>) -> Result<()> {
-        for id in ids {
-            self.deallocate_block(region_id, id)?;
+        for id in &ids {
+            let name = self.block_name(region_id, *id);
+
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    tokio::task::block_in_place(|| handle.block_on(self.backend.delete(&name)))
+                }
+                Err(_) => futures::executor::block_on(self.backend.delete(&name)),
+            }
+            .context("Failed to delete block from backend")?;
         }
+
+        {
+            let mut fl = self.free_list.lock().unwrap();
+            for id in ids {
+                if id != 1 {
+                    fl.push(id);
+                }
+            }
+        }
+        self.persist_free_list()
+            .context("Failed to persist free list after deallocation")?;
+
         Ok(())
     }
 }

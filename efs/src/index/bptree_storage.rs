@@ -137,26 +137,29 @@ impl BlockStorage for BPTreeStorage {
         };
         let _ = result;
 
-        let mut fl = self.free_list.lock().unwrap();
-        fl.push(id);
+        if id != 1 {
+            let mut fl = self.free_list.lock().unwrap();
+            fl.push(id);
+        }
         Ok(())
     }
 
     fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
         for id in &ids {
             let name = self.block_name(*id);
-            let result = match tokio::runtime::Handle::try_current() {
+            let _ = match tokio::runtime::Handle::try_current() {
                 Ok(handle) => {
                     tokio::task::block_in_place(|| handle.block_on(self.backend.delete(&name)))
                 }
                 Err(_) => futures::executor::block_on(self.backend.delete(&name)),
             };
-            let _ = result;
         }
 
         let mut fl = self.free_list.lock().unwrap();
         for id in ids {
-            fl.push(id);
+            if id != 1 {
+                fl.push(id);
+            }
         }
         Ok(())
     }

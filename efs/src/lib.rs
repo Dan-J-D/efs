@@ -174,6 +174,23 @@ impl Efs {
 
     pub async fn put(&mut self, path: &str, data: &[u8]) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
+
+        // Check if entry already exists to prevent leaks on overwrite
+        if let Some(entry) = self.index.get_entry(&path).await? {
+            match entry {
+                EfsEntry::File { .. } => {
+                    // Delete the existing file first to free its blocks
+                    self.delete(&path).await?;
+                }
+                EfsEntry::Directory => {
+                    return Err(anyhow!(
+                        "Cannot overwrite directory with a file at '{}'. Delete the directory first.",
+                        path
+                    ));
+                }
+            }
+        }
+
         let payload_size = UniformEnvelope::payload_size(self.chunk_size);
         let total_size = data.len() as u64;
         let chunks: Vec<_> = data.chunks(payload_size).collect();
@@ -344,18 +361,22 @@ impl Efs {
     async fn delete_dir_recursive(&mut self, path: &str) -> Result<()> {
         let contents = self.index.list_dir(path).await?;
         
-        // Collect all deletion futures to run them in parallel
-        // Note: self is &mut, so we can't easily parallelize if we use &mut self methods.
-        // But we can collect the tasks and run them.
-        // Actually, since we need to modify the index and storage, sequential might be safer
-        // but we can at least optimize the directory traversal.
-        
+        let mut futures = Vec::new();
         for (name, entry) in contents {
             let full_path = if path.is_empty() {
                 name
             } else {
                 format!("{}/{}", path, name)
             };
+            
+            // We need to be careful with &mut self. 
+            // Since we can't easily share &mut self across futures, 
+            // we'll have to do this in a way that works.
+            // One way is to collect all paths and then delete them.
+            futures.push((full_path, entry));
+        }
+
+        for (full_path, entry) in futures {
             match entry {
                 EfsEntry::File { .. } => {
                     self.delete(&full_path).await?;
@@ -365,11 +386,13 @@ impl Efs {
                 }
             }
         }
+
         // Delete the region chunks if the index supports it (e.g. BtreeIndex)
-        // Currently BtreeIndex::delete_region is a no-op, leading to leaks of B-tree nodes.
         self.index.delete_region(path).await?;
         // Finally delete the directory entry from parent index
         self.index.delete(path).await?;
+        
+        self.storage_adapter.persist_free_list()?;
         Ok(())
     }
 
