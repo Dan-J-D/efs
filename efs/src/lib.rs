@@ -401,12 +401,18 @@ impl Efs {
                 .filter_map(|e| e.ok())
                 .filter(|e| e.file_type().is_file())
             {
-                let rel_path = entry.path().strip_prefix(path).unwrap();
+                let rel_path = entry.path().strip_prefix(path).context("Failed to strip prefix")?;
                 let mut remote_file_path = remote_path.to_string();
                 if !remote_file_path.ends_with('/') {
                     remote_file_path.push('/');
                 }
-                remote_file_path.push_str(rel_path.to_str().unwrap());
+                let rel_path_str = rel_path.to_str().ok_or_else(|| {
+                    anyhow!(
+                        "Non-UTF8 path component in local filesystem: {:?}",
+                        rel_path
+                    )
+                })?;
+                remote_file_path.push_str(rel_path_str);
 
                 let data = std::fs::read(entry.path())?;
                 self.put(&remote_file_path, &data).await?;
