@@ -116,6 +116,7 @@ impl EfsBuilder {
 
         let next_id = storage_adapter
             .load_next_id()
+            .await
             .context("Failed to load next_id from storage")?;
         storage_adapter.set_next_id(next_id);
 
@@ -194,6 +195,7 @@ impl Efs {
         let block_ids = self
             .storage_adapter
             .allocate_blocks(FILE_DATA_REGION_ID, chunk_count)
+            .await
             .context("Failed to allocate blocks for file")?;
 
         let mut upload_futures = Vec::new();
@@ -240,13 +242,17 @@ impl Efs {
             .collect::<Result<Vec<_>>>()
             .context("One or more chunk uploads failed")?;
 
-        if let Err(e) = self.index
+        if let Err(e) = self
+            .index
             .insert(&path, block_ids.clone(), total_size)
             .await
         {
             // Try to cleanup allocated blocks on index failure to prevent leakage
             for id in block_ids {
-                let _ = self.storage_adapter.deallocate_block(FILE_DATA_REGION_ID, id);
+                let _ = self
+                    .storage_adapter
+                    .deallocate_block(FILE_DATA_REGION_ID, id)
+                    .await;
             }
             return Err(e).context("Failed to insert file into index; cleaned up allocated blocks");
         }
@@ -353,6 +359,7 @@ impl Efs {
 
         self.storage_adapter
             .deallocate_blocks(FILE_DATA_REGION_ID, block_ids)
+            .await
             .context("Failed to deallocate blocks")?;
 
         Ok(())
@@ -380,7 +387,7 @@ impl Efs {
     #[async_recursion]
     async fn delete_dir_recursive(&mut self, path: &str) -> Result<()> {
         let contents = self.index.list_dir(path).await?;
-        
+
         let mut futures = Vec::new();
         for (name, entry) in contents {
             let full_path = if path.is_empty() {
@@ -388,9 +395,9 @@ impl Efs {
             } else {
                 format!("{}/{}", path, name)
             };
-            
-            // We need to be careful with &mut self. 
-            // Since we can't easily share &mut self across futures, 
+
+            // We need to be careful with &mut self.
+            // Since we can't easily share &mut self across futures,
             // we'll have to do this in a way that works.
             // One way is to collect all paths and then delete them.
             futures.push((full_path, entry));
@@ -426,7 +433,10 @@ impl Efs {
                 .into_iter()
                 .filter_map(|e| e.ok())
             {
-                let rel_path = entry.path().strip_prefix(path).context("Failed to strip prefix")?;
+                let rel_path = entry
+                    .path()
+                    .strip_prefix(path)
+                    .context("Failed to strip prefix")?;
                 let mut remote_item_path = remote_path.to_string();
                 if !remote_item_path.ends_with('/') && !rel_path.as_os_str().is_empty() {
                     remote_item_path.push('/');

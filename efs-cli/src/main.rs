@@ -185,7 +185,8 @@ async fn main() -> Result<()> {
                 Arc::new(StandardCipher),
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
-            ).await?;
+            )
+            .await?;
 
             efs.put_recursive(local_path, remote_path).await?;
             println!("Upload complete.");
@@ -211,7 +212,8 @@ async fn main() -> Result<()> {
                 Arc::new(StandardCipher),
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
-            ).await?;
+            )
+            .await?;
             let data = efs.get(remote_path).await?;
             std::fs::write(local_path, data)?;
             println!("File downloaded successfully.");
@@ -233,7 +235,8 @@ async fn main() -> Result<()> {
                 Arc::new(StandardCipher),
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
-            ).await?;
+            )
+            .await?;
             for path in efs.index.list().await? {
                 println!("{}", path);
             }
@@ -259,7 +262,8 @@ async fn main() -> Result<()> {
                 Arc::new(StandardCipher),
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
-            ).await?;
+            )
+            .await?;
 
             if *recursive {
                 efs.delete_recursive(remote_path).await?;

@@ -2,6 +2,7 @@ use crate::chunk::{Chunker, UniformEnvelope};
 use crate::crypto::Cipher;
 use crate::storage::{RegionId, StorageBackend, ALLOCATOR_STATE_BLOCK_ID, METADATA_REGION_ID};
 use anyhow::Result;
+use async_trait::async_trait;
 use bptree::storage::{BlockId, BlockStorage, StorageError};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -41,10 +42,12 @@ impl BPTreeStorage {
         cloned
     }
 
-    fn persist_next_id(&mut self, next_id: u64) -> Result<(), StorageError> {
+    async fn persist_next_id(&mut self, next_id: u64) -> Result<(), StorageError> {
         let old_region = self.region_id;
         self.region_id = METADATA_REGION_ID;
-        let res = self.write_block(ALLOCATOR_STATE_BLOCK_ID, &next_id.to_le_bytes());
+        let res = self
+            .write_block(ALLOCATOR_STATE_BLOCK_ID, &next_id.to_le_bytes())
+            .await;
         self.region_id = old_region;
         res
     }
@@ -59,15 +62,13 @@ impl BPTreeStorage {
     }
 }
 
+#[async_trait]
 impl BlockStorage for BPTreeStorage {
     type Error = StorageError;
 
-    fn read_block(&self, id: BlockId) -> Result<Vec<u8>, Self::Error> {
+    async fn read_block(&self, id: BlockId) -> Result<Vec<u8>, Self::Error> {
         let name = self.block_name(id);
-        let result = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => tokio::task::block_in_place(|| handle.block_on(self.backend.get(&name))),
-            Err(_) => futures::executor::block_on(self.backend.get(&name)),
-        };
+        let result = self.backend.get(&name).await;
 
         let envelope_bytes = result.map_err(|e| {
             if crate::storage::is_not_found(&e) {
@@ -97,7 +98,7 @@ impl BlockStorage for BPTreeStorage {
         Ok(plaintext)
     }
 
-    fn write_block(&mut self, id: BlockId, data: &[u8]) -> Result<(), Self::Error> {
+    async fn write_block(&mut self, id: BlockId, data: &[u8]) -> Result<(), Self::Error> {
         let name = self.block_name(id);
         let padded_data = Chunker::pad(
             data.to_vec(),
@@ -118,46 +119,30 @@ impl BlockStorage for BPTreeStorage {
             .serialize(self.chunk_size)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
 
-        let result = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => tokio::task::block_in_place(|| {
-                handle.block_on(self.backend.put(&name, envelope_bytes))
-            }),
-            Err(_) => futures::executor::block_on(self.backend.put(&name, envelope_bytes)),
-        };
+        let result = self.backend.put(&name, envelope_bytes).await;
 
         result.map_err(|e| StorageError::Serialization(e.to_string()))?;
         Ok(())
     }
 
-    fn allocate_block(&mut self) -> Result<BlockId, Self::Error> {
+    async fn allocate_block(&mut self) -> Result<BlockId, Self::Error> {
         let current_id = self.next_id.load(Ordering::SeqCst);
         let new_next_id = current_id + 1;
-        self.persist_next_id(new_next_id)?;
+        self.persist_next_id(new_next_id).await?;
         self.next_id.store(new_next_id, Ordering::SeqCst);
         Ok(current_id)
     }
 
-    fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error> {
+    async fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error> {
         let name = self.block_name(id);
-        let result = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                tokio::task::block_in_place(|| handle.block_on(self.backend.delete(&name)))
-            }
-            Err(_) => futures::executor::block_on(self.backend.delete(&name)),
-        };
-        let _ = result;
+        let _ = self.backend.delete(&name).await;
         Ok(())
     }
 
-    fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
+    async fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
         for id in &ids {
             let name = self.block_name(*id);
-            let _ = match tokio::runtime::Handle::try_current() {
-                Ok(handle) => {
-                    tokio::task::block_in_place(|| handle.block_on(self.backend.delete(&name)))
-                }
-                Err(_) => futures::executor::block_on(self.backend.delete(&name)),
-            };
+            let _ = self.backend.delete(&name).await;
         }
         Ok(())
     }
@@ -166,7 +151,7 @@ impl BlockStorage for BPTreeStorage {
         UniformEnvelope::payload_size(self.chunk_size)
     }
 
-    fn sync(&mut self) -> Result<(), Self::Error> {
+    async fn sync(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
 }

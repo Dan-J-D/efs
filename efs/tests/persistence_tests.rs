@@ -13,7 +13,9 @@ async fn test_next_id_persistence() {
     let chunk_size = DEFAULT_CHUNK_SIZE;
 
     {
-        let mut efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), chunk_size).await.unwrap();
+        let mut efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), chunk_size)
+            .await
+            .unwrap();
         // Initially next_id should be 10
         assert_eq!(
             efs.storage_adapter
@@ -34,7 +36,9 @@ async fn test_next_id_persistence() {
 
     // Now create a new Efs instance with the same storage
     {
-        let efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), chunk_size).await.unwrap();
+        let efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), chunk_size)
+            .await
+            .unwrap();
         let id_after_restart = efs
             .storage_adapter
             .next_id()

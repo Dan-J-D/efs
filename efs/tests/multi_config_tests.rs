@@ -15,7 +15,9 @@ async fn test_memory_kv_config() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
 
-    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).await.unwrap();
+    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
+        .await
+        .unwrap();
 
     let data = b"memory + kv index test data";
     efs.put("test_file", data).await.unwrap();
@@ -80,7 +82,9 @@ async fn test_lru_memory_kv_config() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
 
-    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).await.unwrap();
+    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
+        .await
+        .unwrap();
 
     let data = b"lru cache test data";
     efs.put("cached_file", data).await.unwrap();
@@ -111,7 +115,9 @@ async fn test_local_kv_persistence() {
 
     // Re-open
     {
-        let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).await.unwrap();
+        let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
+            .await
+            .unwrap();
         let retrieved = efs.get("persistent_file").await.unwrap();
         assert_eq!(data.to_vec(), retrieved);
     }
@@ -140,7 +146,9 @@ async fn test_s3_mock_config() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
 
-    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).await.unwrap();
+    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
+        .await
+        .unwrap();
 
     let data = b"s3 mock test data";
     efs.put("s3_file", data).await.unwrap();

@@ -155,7 +155,8 @@ impl App {
             Arc::new(StandardCipher),
             silo_cfg.data_key,
             silo_cfg.chunk_size,
-        ).await?;
+        )
+        .await?;
 
         self.files = efs.index.list().await?;
         self.efs = Some(efs);
@@ -791,7 +792,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                             app.state = AppState::Deleting;
                             // Force draw to show "Deleting..."
                             terminal.draw(|f| ui(f, app))?;
-                            
+
                             if let Some(efs) = &mut app.efs {
                                 if let Err(e) = efs.delete_recursive(&p).await {
                                     app.state = AppState::Error(e.to_string());
@@ -1159,11 +1160,9 @@ fn ui(f: &mut Frame, app: &mut App) {
             f.render_widget(paragraph, size);
         }
         AppState::Deleting => {
-            let block = Block::default()
-                .borders(Borders::ALL)
-                .title("Deleting");
-            let paragraph = Paragraph::new("Deleting directory recursively... please wait.")
-                .block(block);
+            let block = Block::default().borders(Borders::ALL).title("Deleting");
+            let paragraph =
+                Paragraph::new("Deleting directory recursively... please wait.").block(block);
             f.render_widget(paragraph, size);
         }
         AppState::Error(msg) => {

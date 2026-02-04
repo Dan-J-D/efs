@@ -28,15 +28,18 @@ impl BtreeIndex {
         Ok(Self { storage })
     }
 
-    fn get_tree(&self, region_id: u64) -> Result<BPTree<String, IndexEntry, BPTreeStorage>> {
+    async fn get_tree(&self, region_id: u64) -> Result<BPTree<String, IndexEntry, BPTreeStorage>> {
         let storage = self.storage.with_region(region_id);
-        BPTree::new(storage).map_err(|e| anyhow!("BPTree error: {}", e))
+        BPTree::new(storage)
+            .await
+            .map_err(|e| anyhow!("BPTree error: {}", e))
     }
 
-    fn allocate_region(&self) -> Result<u64> {
+    async fn allocate_region(&self) -> Result<u64> {
         let mut storage = self.storage.clone();
         storage
             .allocate_block()
+            .await
             .map_err(|e| anyhow!("Failed to allocate region: {}", e))
     }
 
@@ -57,9 +60,9 @@ impl EfsIndex for BtreeIndex {
         let mut current_region = BTREE_REGION_ID;
 
         for part in parts.iter().take(parts.len() - 1) {
-            let mut tree = self.get_tree(current_region)?;
+            let mut tree = self.get_tree(current_region).await?;
 
-            match tree.get(part).map_err(|e| anyhow!("{}", e))? {
+            match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
                     current_region = region_id;
                 }
@@ -67,20 +70,21 @@ impl EfsIndex for BtreeIndex {
                     return Err(anyhow!("Path component '{}' is a file", part));
                 }
                 None => {
-                    let new_region = self.allocate_region()?;
+                    let new_region = self.allocate_region().await?;
                     tree.insert(
                         part.clone(),
                         IndexEntry::Directory {
                             region_id: new_region,
                         },
                     )
+                    .await
                     .map_err(|e| anyhow!("{}", e))?;
                     current_region = new_region;
                 }
             }
         }
 
-        let mut tree = self.get_tree(current_region)?;
+        let mut tree = self.get_tree(current_region).await?;
         tree.insert(
             parts.last().unwrap().clone(),
             IndexEntry::File {
@@ -88,6 +92,7 @@ impl EfsIndex for BtreeIndex {
                 total_size,
             },
         )
+        .await
         .map_err(|e| anyhow!("Insert error: {}", e))?;
 
         Ok(())
@@ -102,9 +107,9 @@ impl EfsIndex for BtreeIndex {
         let mut current_region = BTREE_REGION_ID;
 
         for part in parts {
-            let mut tree = self.get_tree(current_region)?;
+            let mut tree = self.get_tree(current_region).await?;
 
-            match tree.get(&part).map_err(|e| anyhow!("{}", e))? {
+            match tree.get(&part).await.map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
                     current_region = region_id;
                 }
@@ -112,13 +117,14 @@ impl EfsIndex for BtreeIndex {
                     return Err(anyhow!("Path component '{}' is a file", part));
                 }
                 None => {
-                    let new_region = self.allocate_region()?;
+                    let new_region = self.allocate_region().await?;
                     tree.insert(
                         part.clone(),
                         IndexEntry::Directory {
                             region_id: new_region,
                         },
                     )
+                    .await
                     .map_err(|e| anyhow!("{}", e))?;
                     current_region = new_region;
                 }
@@ -150,10 +156,10 @@ impl EfsIndex for BtreeIndex {
 
         let mut current_region = BTREE_REGION_ID;
         for i in 0..parts.len() {
-            let tree = self.get_tree(current_region)?;
+            let tree = self.get_tree(current_region).await?;
             let part = &parts[i];
 
-            match tree.get(part).map_err(|e| anyhow!("{}", e))? {
+            match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
                     if i == parts.len() - 1 {
                         return Ok(Some(EfsEntry::Directory));
@@ -195,8 +201,8 @@ impl EfsIndex for BtreeIndex {
 
         if !parts.is_empty() {
             for part in parts {
-                let tree = self.get_tree(current_region)?;
-                match tree.get(&part).map_err(|e| anyhow!("{}", e))? {
+                let tree = self.get_tree(current_region).await?;
+                match tree.get(&part).await.map_err(|e| anyhow!("{}", e))? {
                     Some(IndexEntry::Directory { region_id }) => {
                         current_region = region_id;
                     }
@@ -205,10 +211,9 @@ impl EfsIndex for BtreeIndex {
             }
         }
 
-        let tree = self.get_tree(current_region)?;
+        let tree = self.get_tree(current_region).await?;
         let mut results = Vec::new();
-        for result in tree.iter().map_err(|e| anyhow!("{}", e))? {
-            let (name, entry) = result.map_err(|e| anyhow!("{}", e))?;
+        for (name, entry) in tree.range(..).await.map_err(|e| anyhow!("{}", e))? {
             let efs_entry = match entry {
                 IndexEntry::File {
                     block_ids,
@@ -232,8 +237,8 @@ impl EfsIndex for BtreeIndex {
 
         let mut current_region = BTREE_REGION_ID;
         for part in parts.iter().take(parts.len() - 1) {
-            let tree = self.get_tree(current_region)?;
-            match tree.get(part).map_err(|e| anyhow!("{}", e))? {
+            let tree = self.get_tree(current_region).await?;
+            match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
                     current_region = region_id;
                 }
@@ -241,11 +246,10 @@ impl EfsIndex for BtreeIndex {
             }
         }
 
-        let mut tree = self.get_tree(current_region)?;
+        let mut tree = self.get_tree(current_region).await?;
         tree.delete(parts.last().unwrap())
+            .await
             .map_err(|e| anyhow!("Delete error: {}", e))?;
-        // BPTree might not have sync, but let's check if there is some other way to persist.
-        // If it writes directly to BlockStorage, then it's already persisted.
         Ok(())
     }
 
@@ -255,8 +259,8 @@ impl EfsIndex for BtreeIndex {
 
         // Traverse to find the region_id of the directory at path
         for part in &parts {
-            let tree = self.get_tree(current_region)?;
-            match tree.get(part).map_err(|e| anyhow!("{}", e))? {
+            let tree = self.get_tree(current_region).await?;
+            match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
                     current_region = region_id;
                 }
@@ -266,14 +270,21 @@ impl EfsIndex for BtreeIndex {
 
         // Now current_region is the region_id we want to deallocate.
         // We load the tree and collect all blocks.
-        let tree = self.get_tree(current_region)?;
-        let block_ids = tree.get_all_block_ids().map_err(|e| anyhow!("{}", e))?;
+        let tree = self.get_tree(current_region).await?;
+        let block_ids = tree
+            .get_all_block_ids()
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
 
         // Deallocate each block. We use with_region to ensure we are deleting from the correct logical space.
         let mut storage = self.storage.with_region(current_region);
-        storage
-            .deallocate_blocks(block_ids)
-            .map_err(|e| anyhow!("Failed to deallocate blocks in region {}: {}", current_region, e))?;
+        storage.deallocate_blocks(block_ids).await.map_err(|e| {
+            anyhow!(
+                "Failed to deallocate blocks in region {}: {}",
+                current_region,
+                e
+            )
+        })?;
 
         Ok(())
     }
@@ -287,9 +298,8 @@ impl BtreeIndex {
         prefix: &str,
         results: &mut Vec<String>,
     ) -> Result<()> {
-        let tree = self.get_tree(region_id)?;
-        for result in tree.iter().map_err(|e| anyhow!("{}", e))? {
-            let (name, entry) = result.map_err(|e| anyhow!("{}", e))?;
+        let tree = self.get_tree(region_id).await?;
+        for (name, entry) in tree.range(..).await.map_err(|e| anyhow!("{}", e))? {
             let full_path = if prefix.is_empty() {
                 name.clone()
             } else {

@@ -10,8 +10,10 @@ pub struct KvIndex {
 }
 
 impl KvIndex {
-    pub fn new(storage: BPTreeStorage) -> Result<Self> {
-        let tree = BPTree::new(storage).context("Failed to initialize BPTree for KvIndex")?;
+    pub async fn new(storage: BPTreeStorage) -> Result<Self> {
+        let tree = BPTree::new(storage)
+            .await
+            .context("Failed to initialize BPTree for KvIndex")?;
         Ok(Self {
             tree: RwLock::new(tree),
         })
@@ -23,6 +25,7 @@ impl EfsIndex for KvIndex {
     async fn insert(&self, path: &str, block_ids: Vec<u64>, total_size: u64) -> Result<()> {
         let mut tree = self.tree.write().await;
         tree.insert(path.to_string(), (block_ids, total_size))
+            .await
             .context("Failed to insert entry into KvIndex")?;
         Ok(())
     }
@@ -37,6 +40,7 @@ impl EfsIndex for KvIndex {
     async fn get(&self, path: &str) -> Result<Option<(Vec<u64>, u64)>> {
         let tree = self.tree.read().await;
         tree.get(&path.to_string())
+            .await
             .context("Failed to retrieve entry from KvIndex")
     }
 
@@ -47,6 +51,7 @@ impl EfsIndex for KvIndex {
         // Check if it is a file
         if let Some((block_ids, total_size)) = tree
             .get(&path_str)
+            .await
             .context("Failed to retrieve entry from KvIndex")?
         {
             return Ok(Some(EfsEntry::File {
@@ -61,11 +66,7 @@ impl EfsIndex for KvIndex {
             prefix.push('/');
         }
 
-        let iter = tree
-            .iter()
-            .context("Failed to create iterator for KvIndex")?;
-        for result in iter {
-            let (p, _) = result.context("Failed to read entry during KvIndex search")?;
+        for (p, _) in tree.range(..).await.map_err(|e| anyhow::anyhow!("{}", e))? {
             if p.starts_with(&prefix) {
                 return Ok(Some(EfsEntry::Directory));
             }
@@ -77,11 +78,7 @@ impl EfsIndex for KvIndex {
     async fn list(&self) -> Result<Vec<String>> {
         let tree = self.tree.read().await;
         let mut paths = Vec::new();
-        let iter = tree
-            .iter()
-            .context("Failed to create iterator for KvIndex")?;
-        for result in iter {
-            let (path, _) = result.context("Failed to read entry during KvIndex listing")?;
+        for (path, _) in tree.range(..).await.map_err(|e| anyhow::anyhow!("{}", e))? {
             paths.push(path);
         }
         Ok(paths)
@@ -99,11 +96,7 @@ impl EfsIndex for KvIndex {
         }
 
         let mut entries = std::collections::HashMap::new();
-        let iter = tree
-            .iter()
-            .context("Failed to create iterator for KvIndex")?;
-        for result in iter {
-            let (p, value) = result.context("Failed to read entry during KvIndex list_dir")?;
+        for (p, value) in tree.range(..).await.map_err(|e| anyhow::anyhow!("{}", e))? {
             if p.starts_with(&prefix) {
                 let remaining = &p[prefix.len()..];
                 if remaining.is_empty() {
@@ -131,7 +124,7 @@ impl EfsIndex for KvIndex {
         let mut tree = self.tree.write().await;
         // In a flat index, a "directory" doesn't have an entry to delete.
         // We ignore the error if the exact path doesn't exist.
-        let _ = tree.delete(&path.to_string());
+        let _ = tree.delete(&path.to_string()).await;
         Ok(())
     }
 

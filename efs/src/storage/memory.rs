@@ -36,15 +36,8 @@ impl StorageBackend for MemoryBackend {
 
     async fn get(&self, name: &str) -> Result<Vec<u8>> {
         let path = object_store::path::Path::from(name);
-        let result = self
-            .store
-            .get(&path)
-            .await
-            .context("Memory get error")?;
-        let bytes = result
-            .bytes()
-            .await
-            .context("Memory collect error")?;
+        let result = self.store.get(&path).await.context("Memory get error")?;
+        let bytes = result.bytes().await.context("Memory collect error")?;
         Ok(bytes.to_vec())
     }
 

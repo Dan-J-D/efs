@@ -71,14 +71,19 @@ impl StorageBackend for MirrorOrchestrator {
                 match data {
                     Some(d) => return Ok(d),
                     None => {
-                        return Err(not_found_err.unwrap_or_else(|| anyhow!("Not found (consensus)")));
+                        return Err(
+                            not_found_err.unwrap_or_else(|| anyhow!("Not found (consensus)"))
+                        );
                     }
                 }
             }
         }
 
         if let Some(e) = last_err {
-            Err(e).context(format!("Failed to reach majority consensus on read for {}", name))
+            Err(e).context(format!(
+                "Failed to reach majority consensus on read for {}",
+                name
+            ))
         } else {
             Err(anyhow!(
                 "Failed to reach majority consensus on read for {} (conflicting data or too many failures)",
@@ -147,11 +152,7 @@ mod tests {
         b2.put("key", b"fresh".to_vec()).await?;
         b3.put("key", b"fresh".to_vec()).await?;
 
-        let orchestrator = MirrorOrchestrator::new(vec![
-            Box::new(b1),
-            Box::new(b2),
-            Box::new(b3),
-        ]);
+        let orchestrator = MirrorOrchestrator::new(vec![Box::new(b1), Box::new(b2), Box::new(b3)]);
 
         let data = orchestrator.get("key").await?;
         assert_eq!(data, b"fresh".to_vec());
@@ -167,11 +168,7 @@ mod tests {
 
         b1.put("key", b"ghost".to_vec()).await?;
 
-        let orchestrator = MirrorOrchestrator::new(vec![
-            Box::new(b1),
-            Box::new(b2),
-            Box::new(b3),
-        ]);
+        let orchestrator = MirrorOrchestrator::new(vec![Box::new(b1), Box::new(b2), Box::new(b3)]);
 
         let res = orchestrator.get("key").await;
         assert!(res.is_err());
@@ -195,11 +192,7 @@ mod tests {
 
         b3.put("c", b"v1".to_vec()).await?;
 
-        let orchestrator = MirrorOrchestrator::new(vec![
-            Box::new(b1),
-            Box::new(b2),
-            Box::new(b3),
-        ]);
+        let orchestrator = MirrorOrchestrator::new(vec![Box::new(b1), Box::new(b2), Box::new(b3)]);
 
         let list = orchestrator.list().await?;
         assert_eq!(list.len(), 2);

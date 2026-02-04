@@ -49,13 +49,10 @@ impl EfsBlockStorage {
         self.next_id.store(id, Ordering::SeqCst);
     }
 
-    pub fn read_block(&self, region_id: RegionId, id: BlockId) -> Result<Vec<u8>> {
+    pub async fn read_block(&self, region_id: RegionId, id: BlockId) -> Result<Vec<u8>> {
         let name = self.block_name(region_id, id);
 
-        let result = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => tokio::task::block_in_place(|| handle.block_on(self.backend.get(&name))),
-            Err(_) => futures::executor::block_on(self.backend.get(&name)),
-        };
+        let result = self.backend.get(&name).await;
 
         let envelope_bytes = result.context("Failed to get block from backend")?;
         let envelope = UniformEnvelope::deserialize(&envelope_bytes)
@@ -79,7 +76,12 @@ impl EfsBlockStorage {
         Ok(plaintext)
     }
 
-    pub fn write_block(&mut self, region_id: RegionId, id: BlockId, data: &[u8]) -> Result<()> {
+    pub async fn write_block(
+        &mut self,
+        region_id: RegionId,
+        id: BlockId,
+        data: &[u8],
+    ) -> Result<()> {
         let name = self.block_name(region_id, id);
 
         let padded_data = Chunker::pad(
@@ -105,22 +107,22 @@ impl EfsBlockStorage {
             id, region_id
         ))?;
 
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => tokio::task::block_in_place(|| {
-                handle.block_on(self.backend.put(&name, envelope_bytes))
-            }),
-            Err(_) => futures::executor::block_on(self.backend.put(&name, envelope_bytes)),
-        }
-        .context(format!(
-            "Failed to put block {} in region {} to backend (name: {})",
-            id, region_id, name
-        ))?;
+        self.backend
+            .put(&name, envelope_bytes)
+            .await
+            .context(format!(
+                "Failed to put block {} in region {} to backend (name: {})",
+                id, region_id, name
+            ))?;
 
         Ok(())
     }
 
-    pub fn load_next_id(&self) -> Result<u64> {
-        match self.read_block(METADATA_REGION_ID, ALLOCATOR_STATE_BLOCK_ID) {
+    pub async fn load_next_id(&self) -> Result<u64> {
+        match self
+            .read_block(METADATA_REGION_ID, ALLOCATOR_STATE_BLOCK_ID)
+            .await
+        {
             Ok(data) => {
                 if data.len() >= 8 {
                     let mut bytes = [0u8; 8];
@@ -140,21 +142,27 @@ impl EfsBlockStorage {
         }
     }
 
-    pub fn persist_next_id(&mut self, next_id: u64) -> Result<()> {
+    pub async fn persist_next_id(&mut self, next_id: u64) -> Result<()> {
         self.write_block(
             METADATA_REGION_ID,
             ALLOCATOR_STATE_BLOCK_ID,
             &next_id.to_le_bytes(),
         )
+        .await
     }
 
-    pub fn allocate_blocks(&mut self, _region_id: RegionId, count: usize) -> Result<Vec<BlockId>> {
+    pub async fn allocate_blocks(
+        &mut self,
+        _region_id: RegionId,
+        count: usize,
+    ) -> Result<Vec<BlockId>> {
         let mut ids = Vec::with_capacity(count);
 
         let first_id = self.next_id.load(Ordering::SeqCst);
         let new_next_id = first_id + count as u64;
 
         self.persist_next_id(new_next_id)
+            .await
             .context("Failed to persist next_id before allocation")?;
 
         self.next_id.store(new_next_id, Ordering::SeqCst);
@@ -167,36 +175,34 @@ impl EfsBlockStorage {
         Ok(ids)
     }
 
-    pub fn allocate_block(&mut self, region_id: RegionId) -> Result<BlockId> {
-        let ids = self.allocate_blocks(region_id, 1)?;
+    pub async fn allocate_block(&mut self, region_id: RegionId) -> Result<BlockId> {
+        let ids = self.allocate_blocks(region_id, 1).await?;
         Ok(ids[0])
     }
 
-    pub fn deallocate_block(&mut self, region_id: RegionId, id: BlockId) -> Result<()> {
+    pub async fn deallocate_block(&mut self, region_id: RegionId, id: BlockId) -> Result<()> {
         let name = self.block_name(region_id, id);
 
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                tokio::task::block_in_place(|| handle.block_on(self.backend.delete(&name)))
-            }
-            Err(_) => futures::executor::block_on(self.backend.delete(&name)),
-        }
-        .context("Failed to delete block from backend")?;
+        self.backend
+            .delete(&name)
+            .await
+            .context("Failed to delete block from backend")?;
 
         Ok(())
     }
 
-    pub fn deallocate_blocks(&mut self, region_id: RegionId, ids: Vec<BlockId>) -> Result<()> {
+    pub async fn deallocate_blocks(
+        &mut self,
+        region_id: RegionId,
+        ids: Vec<BlockId>,
+    ) -> Result<()> {
         for id in &ids {
             let name = self.block_name(region_id, *id);
 
-            match tokio::runtime::Handle::try_current() {
-                Ok(handle) => {
-                    tokio::task::block_in_place(|| handle.block_on(self.backend.delete(&name)))
-                }
-                Err(_) => futures::executor::block_on(self.backend.delete(&name)),
-            }
-            .context("Failed to delete block from backend")?;
+            self.backend
+                .delete(&name)
+                .await
+                .context("Failed to delete block from backend")?;
         }
 
         Ok(())

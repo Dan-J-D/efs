@@ -18,7 +18,7 @@ async fn test_efs_builder_custom_index() {
     // We need to load next_id to properly construct BPTreeStorage for BtreeIndex
     let storage_adapter =
         EfsBlockStorage::new(backend.clone(), cipher.clone(), key.clone(), chunk_size);
-    let next_id = storage_adapter.load_next_id().unwrap();
+    let next_id = storage_adapter.load_next_id().await.unwrap();
 
     let btree_storage = BPTreeStorage::new(
         backend.clone(),

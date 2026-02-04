@@ -1,7 +1,7 @@
 use anyhow::Result;
 use efs::EfsBuilder;
-use tempfile::tempdir;
 use std::fs;
+use tempfile::tempdir;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_put_recursive_preserves_empty_directories() -> Result<()> {
@@ -15,7 +15,8 @@ async fn test_put_recursive_preserves_empty_directories() -> Result<()> {
 
     let mut efs = EfsBuilder::new().build().await?;
 
-    efs.put_recursive(local_dir.path().to_str().unwrap(), "root").await?;
+    efs.put_recursive(local_dir.path().to_str().unwrap(), "root")
+        .await?;
 
     let entries = efs.list().await?;
     println!("Entries: {:?}", entries);
