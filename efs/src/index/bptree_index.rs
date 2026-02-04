@@ -33,15 +33,11 @@ impl BtreeIndex {
         BPTree::new(storage).map_err(|e| anyhow!("BPTree error: {}", e))
     }
 
-    fn allocate_region(&self, path_so_far: &str) -> u64 {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&self.storage.key);
-        hasher.update(&BTREE_REGION_ID.to_le_bytes());
-        hasher.update(path_so_far.as_bytes());
-        let hash = hasher.finalize();
-        let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(&hash.as_bytes()[..8]);
-        u64::from_le_bytes(bytes)
+    fn allocate_region(&self) -> Result<u64> {
+        let mut storage = self.storage.clone();
+        storage
+            .allocate_block()
+            .map_err(|e| anyhow!("Failed to allocate region: {}", e))
     }
 
     fn normalize_path(&self, path: &str) -> Result<Vec<String>> {
@@ -59,12 +55,8 @@ impl EfsIndex for BtreeIndex {
         let parts = self.normalize_path(path)?;
 
         let mut current_region = BTREE_REGION_ID;
-        let mut path_so_far = String::new();
 
         for part in parts.iter().take(parts.len() - 1) {
-            path_so_far.push('/');
-            path_so_far.push_str(part);
-
             let mut tree = self.get_tree(current_region)?;
 
             match tree.get(part).map_err(|e| anyhow!("{}", e))? {
@@ -75,7 +67,7 @@ impl EfsIndex for BtreeIndex {
                     return Err(anyhow!("Path component '{}' is a file", part));
                 }
                 None => {
-                    let new_region = self.allocate_region(&path_so_far);
+                    let new_region = self.allocate_region()?;
                     tree.insert(
                         part.clone(),
                         IndexEntry::Directory {
@@ -108,12 +100,8 @@ impl EfsIndex for BtreeIndex {
         }
 
         let mut current_region = BTREE_REGION_ID;
-        let mut path_so_far = String::new();
 
         for part in parts {
-            path_so_far.push('/');
-            path_so_far.push_str(&part);
-
             let mut tree = self.get_tree(current_region)?;
 
             match tree.get(&part).map_err(|e| anyhow!("{}", e))? {
@@ -124,7 +112,7 @@ impl EfsIndex for BtreeIndex {
                     return Err(anyhow!("Path component '{}' is a file", part));
                 }
                 None => {
-                    let new_region = self.allocate_region(&path_so_far);
+                    let new_region = self.allocate_region()?;
                     tree.insert(
                         part.clone(),
                         IndexEntry::Directory {

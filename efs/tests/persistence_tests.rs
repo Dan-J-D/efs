@@ -14,12 +14,12 @@ async fn test_next_id_persistence() {
 
     {
         let mut efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), chunk_size).await.unwrap();
-        // Initially next_id should be 2
+        // Initially next_id should be 10
         assert_eq!(
             efs.storage_adapter
                 .next_id()
                 .load(std::sync::atomic::Ordering::SeqCst),
-            2
+            10
         );
 
         // Put some data, which should allocate blocks and increment next_id
@@ -29,7 +29,7 @@ async fn test_next_id_persistence() {
             .storage_adapter
             .next_id()
             .load(std::sync::atomic::Ordering::SeqCst);
-        assert!(id_after_put > 2);
+        assert!(id_after_put > 10);
     }
 
     // Now create a new Efs instance with the same storage
@@ -44,8 +44,8 @@ async fn test_next_id_persistence() {
         // Wait, Efs::put might have allocated more than one block? No, "hello world" is small, so 1 block.
         // Actually, B-Tree might have also allocated blocks.
 
-        // Let's just check that it's greater than 2 and consistent with where we left off.
-        assert!(id_after_restart > 2);
+        // Let's just check that it's greater than 10 and consistent with where we left off.
+        assert!(id_after_restart > 10);
 
         // If we put again, it should continue from id_after_restart
         // We can check this by comparing with the id from the previous session.

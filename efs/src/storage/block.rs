@@ -27,7 +27,7 @@ impl EfsBlockStorage {
             backend,
             cipher,
             key,
-            next_id: Arc::new(AtomicU64::new(2)), // Block 1 is reserved for KvIndex root
+            next_id: Arc::new(AtomicU64::new(10)), // Start from 10 to avoid collisions with reserved regions (0, 1, 2)
             chunk_size,
         }
     }
@@ -132,7 +132,7 @@ impl EfsBlockStorage {
             }
             Err(e) => {
                 if crate::storage::is_not_found(&e) {
-                    Ok(2)
+                    Ok(10)
                 } else {
                     Err(e).context("Failed to load next_id from allocator state")
                 }
