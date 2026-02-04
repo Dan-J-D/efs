@@ -4,6 +4,7 @@ pub mod index;
 pub mod mirror;
 pub mod silo;
 pub mod storage;
+pub mod path;
 
 pub use crate::chunk::{Chunker, UniformEnvelope, DEFAULT_CHUNK_SIZE};
 pub use crate::crypto::{Cipher, Hasher, Kdf};
@@ -152,6 +153,7 @@ impl Efs {
     }
 
     pub async fn put(&mut self, path: &str, data: &[u8]) -> Result<()> {
+        let path = crate::path::normalize_path(path)?;
         let payload_size = UniformEnvelope::payload_size(self.chunk_size);
         let total_size = data.len() as u64;
         let chunks: Vec<_> = data.chunks(payload_size).collect();
@@ -207,7 +209,7 @@ impl Efs {
             .context("One or more chunk uploads failed")?;
 
         self.index
-            .insert(path, block_ids, total_size)
+            .insert(&path, block_ids, total_size)
             .await
             .context("Failed to insert file into index")?;
 
@@ -215,9 +217,10 @@ impl Efs {
     }
 
     pub async fn get(&self, path: &str) -> Result<Vec<u8>> {
+        let path = crate::path::normalize_path(path)?;
         let (block_ids, total_size) = self
             .index
-            .get(path)
+            .get(&path)
             .await
             .context("Failed to query index")?
             .ok_or_else(|| anyhow!("File not found: {}", path))?;
@@ -275,15 +278,16 @@ impl Efs {
     }
 
     pub async fn delete(&mut self, path: &str) -> Result<()> {
+        let path = crate::path::normalize_path(path)?;
         let (block_ids, _) = self
             .index
-            .get(path)
+            .get(&path)
             .await
             .context("Failed to query index")?
             .ok_or_else(|| anyhow!("File not found: {}", path))?;
 
         self.index
-            .delete(path)
+            .delete(&path)
             .await
             .context("Failed to delete from index")?;
 

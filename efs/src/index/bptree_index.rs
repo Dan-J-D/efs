@@ -44,20 +44,8 @@ impl BtreeIndex {
     }
 
     fn normalize_path(&self, path: &str) -> Result<Vec<String>> {
-        let mut stack = Vec::new();
-        for part in path.split('/') {
-            match part {
-                "" | "." => continue,
-                ".." => {
-                    stack.pop();
-                }
-                _ => stack.push(part.to_string()),
-            }
-        }
-        if stack.is_empty() {
-            return Err(anyhow!("Invalid path: root cannot be operated on directly"));
-        }
-        Ok(stack)
+        let normalized = crate::path::normalize_path(path)?;
+        Ok(normalized.split('/').map(|s| s.to_string()).collect())
     }
 }
 

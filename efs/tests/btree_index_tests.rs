@@ -67,4 +67,15 @@ async fn test_btree_index_hierarchical() {
         .await
         .unwrap();
     assert!(index.get("/root_file.txt").await.unwrap().is_some());
+
+    // Test .gitignore vs /.gitignore in root
+    index.insert(".gitignore", vec![7], 70).await.unwrap();
+    assert!(index.get("/.gitignore").await.unwrap().is_some());
+    let (blocks, _) = index.get("/.gitignore").await.unwrap().unwrap();
+    assert_eq!(blocks, vec![7]);
+
+    index.insert("/.gitignore", vec![8], 80).await.unwrap();
+    let (blocks, size) = index.get(".gitignore").await.unwrap().unwrap();
+    assert_eq!(blocks, vec![8]);
+    assert_eq!(size, 80);
 }
