@@ -353,4 +353,33 @@ impl Efs {
         self.index.delete(path).await?;
         Ok(())
     }
+
+    pub async fn put_recursive(&mut self, local_path: &str, remote_path: &str) -> Result<()> {
+        let path = std::path::Path::new(local_path);
+        if !path.exists() {
+            return Err(anyhow!("Local path does not exist: {}", local_path));
+        }
+
+        if path.is_dir() {
+            for entry in walkdir::WalkDir::new(path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_file())
+            {
+                let rel_path = entry.path().strip_prefix(path).unwrap();
+                let mut remote_file_path = remote_path.to_string();
+                if !remote_file_path.ends_with('/') {
+                    remote_file_path.push('/');
+                }
+                remote_file_path.push_str(rel_path.to_str().unwrap());
+
+                let data = std::fs::read(entry.path())?;
+                self.put(&remote_file_path, &data).await?;
+            }
+        } else {
+            let data = std::fs::read(local_path)?;
+            self.put(remote_path, &data).await?;
+        }
+        Ok(())
+    }
 }

@@ -730,16 +730,11 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                             let lp = local_path.clone();
                             let rp = remote_path.clone();
                             if let Some(efs) = &mut app.efs {
-                                match std::fs::read(&lp) {
-                                    Ok(data) => {
-                                        if let Err(e) = efs.put(&rp, &data).await {
-                                            app.state = AppState::Error(e.to_string());
-                                        } else {
-                                            let _ = app.refresh_files().await;
-                                            app.state = AppState::Main;
-                                        }
-                                    }
-                                    Err(e) => app.state = AppState::Error(e.to_string()),
+                                if let Err(e) = efs.put_recursive(&lp, &rp).await {
+                                    app.state = AppState::Error(e.to_string());
+                                } else {
+                                    let _ = app.refresh_files().await;
+                                    app.state = AppState::Main;
                                 }
                             }
                         }

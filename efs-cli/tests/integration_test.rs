@@ -177,3 +177,67 @@ fn test_cli_custom_chunk_size() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn test_cli_folder_upload() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let config_path = tmp_dir.path().join("config.json");
+    let backend_path = tmp_dir.path().join("backend");
+    fs::create_dir(&backend_path)?;
+
+    Command::cargo_bin("efs-cli")?
+        .arg("--config")
+        .arg(&config_path)
+        .arg("add-local")
+        .arg("--name")
+        .arg("local1")
+        .arg("--path")
+        .arg(&backend_path)
+        .env("EFS_PASSWORD", "password123")
+        .assert()
+        .success();
+
+    Command::cargo_bin("efs-cli")?
+        .arg("--config")
+        .arg(&config_path)
+        .arg("init")
+        .arg("--silo-id")
+        .arg("test-silo")
+        .env("EFS_PASSWORD", "password123")
+        .assert()
+        .success();
+
+    let folder_to_upload = tmp_dir.path().join("my_folder");
+    fs::create_dir(&folder_to_upload)?;
+    fs::write(folder_to_upload.join("file1.txt"), "content1")?;
+    fs::create_dir(folder_to_upload.join("subfolder"))?;
+    fs::write(folder_to_upload.join("subfolder/file2.txt"), "content2")?;
+
+    Command::cargo_bin("efs-cli")?
+        .arg("--config")
+        .arg(&config_path)
+        .arg("put")
+        .arg("--silo-id")
+        .arg("test-silo")
+        .arg(&folder_to_upload)
+        .arg("remote_folder")
+        .env("EFS_PASSWORD", "password123")
+        .assert()
+        .success();
+
+    Command::cargo_bin("efs-cli")?
+        .arg("--config")
+        .arg(&config_path)
+        .arg("ls")
+        .arg("--silo-id")
+        .arg("test-silo")
+        .env("EFS_PASSWORD", "password123")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("remote_folder/file1.txt"))
+        .stdout(predicates::str::contains(
+            "remote_folder/subfolder/file2.txt",
+        ));
+
+    Ok(())
+}

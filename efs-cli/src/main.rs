@@ -186,9 +186,9 @@ async fn main() -> Result<()> {
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )?;
-            let data = std::fs::read(local_path)?;
-            efs.put(remote_path, &data).await?;
-            println!("File uploaded successfully.");
+
+            efs.put_recursive(local_path, remote_path).await?;
+            println!("Upload complete.");
         }
         Commands::Get {
             silo_id,
