@@ -154,7 +154,7 @@ impl App {
             Arc::new(StandardCipher),
             silo_cfg.data_key,
             silo_cfg.chunk_size,
-        )?;
+        ).await?;
 
         self.files = efs.index.list().await?;
         self.efs = Some(efs);

@@ -14,6 +14,7 @@ pub type RegionId = u64;
 
 pub const ROOT_BLOCK_ID: BlockId = 0;
 pub const ALLOCATOR_STATE_BLOCK_ID: BlockId = 0;
+pub const FREE_LIST_BLOCK_ID: BlockId = 1;
 
 pub const METADATA_REGION_ID: RegionId = 0;
 pub const BTREE_REGION_ID: RegionId = 2;

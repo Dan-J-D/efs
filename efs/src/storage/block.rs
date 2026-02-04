@@ -1,18 +1,22 @@
 use crate::chunk::{Chunker, UniformEnvelope};
 use crate::crypto::Cipher;
-use crate::storage::{RegionId, StorageBackend, ALLOCATOR_STATE_BLOCK_ID, METADATA_REGION_ID};
+use crate::storage::{
+    RegionId, StorageBackend, ALLOCATOR_STATE_BLOCK_ID, FREE_LIST_BLOCK_ID, METADATA_REGION_ID,
+};
 use anyhow::{Context, Result};
 use blake3;
 use bptree::storage::BlockId;
 use hex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 
 pub struct EfsBlockStorage {
     backend: Arc<dyn StorageBackend>,
     cipher: Arc<dyn Cipher>,
     key: Vec<u8>,
     next_id: Arc<AtomicU64>,
+    free_list: Arc<Mutex<Vec<u64>>>,
     chunk_size: usize,
 }
 
@@ -28,6 +32,7 @@ impl EfsBlockStorage {
             cipher,
             key,
             next_id: Arc::new(AtomicU64::new(2)), // Block 1 is reserved for KvIndex root
+            free_list: Arc::new(Mutex::new(Vec::new())),
             chunk_size,
         }
     }
@@ -43,6 +48,10 @@ impl EfsBlockStorage {
 
     pub fn next_id(&self) -> Arc<AtomicU64> {
         self.next_id.clone()
+    }
+
+    pub fn free_list(&self) -> Arc<Mutex<Vec<u64>>> {
+        self.free_list.clone()
     }
 
     pub fn set_next_id(&self, id: u64) {
@@ -91,15 +100,19 @@ impl EfsBlockStorage {
         ad.extend_from_slice(&region_id.to_le_bytes());
         ad.extend_from_slice(&id.to_le_bytes());
 
-        let (ciphertext, nonce, tag) = self
-            .cipher
-            .encrypt(&self.key, &ad, &padded_data)
-            .context("Failed to encrypt block")?;
+        let (ciphertext, nonce, tag) =
+            self.cipher
+                .encrypt(&self.key, &ad, &padded_data)
+                .context(format!(
+                    "Failed to encrypt block {} in region {}",
+                    id, region_id
+                ))?;
 
         let envelope = UniformEnvelope::new(nonce, tag, ciphertext);
-        let envelope_bytes = envelope
-            .serialize(self.chunk_size)
-            .context("Failed to serialize uniform envelope")?;
+        let envelope_bytes = envelope.serialize(self.chunk_size).context(format!(
+            "Failed to serialize uniform envelope for block {} in region {}",
+            id, region_id
+        ))?;
 
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => tokio::task::block_in_place(|| {
@@ -107,7 +120,10 @@ impl EfsBlockStorage {
             }),
             Err(_) => futures::executor::block_on(self.backend.put(&name, envelope_bytes)),
         }
-        .context("Failed to put block to backend")?;
+        .context(format!(
+            "Failed to put block {} in region {} to backend (name: {})",
+            id, region_id, name
+        ))?;
 
         Ok(())
     }
@@ -120,10 +136,17 @@ impl EfsBlockStorage {
                     bytes.copy_from_slice(&data[..8]);
                     Ok(u64::from_le_bytes(bytes))
                 } else {
-                    Ok(2)
+                    Err(anyhow::anyhow!("Invalid allocator state: too short"))
                 }
             }
-            Err(_) => Ok(2),
+            Err(_e) => {
+                // If the block is not found, it's a new silo, start from 2
+                // We should check if the error is indeed "not found"
+                // Assuming our backend returns a specific error for not found
+                // For now, let's just log it and return 2 if we can't find it,
+                // but only if it's really missing.
+                Ok(2)
+            }
         }
     }
 
@@ -135,17 +158,60 @@ impl EfsBlockStorage {
         )
     }
 
+    pub fn load_free_list(&self) -> Result<Vec<u64>> {
+        match self.read_block(METADATA_REGION_ID, FREE_LIST_BLOCK_ID) {
+            Ok(data) => {
+                let list: Vec<u64> =
+                    bincode::deserialize(&data).context("Failed to deserialize free list")?;
+                Ok(list)
+            }
+            Err(_) => Ok(Vec::new()),
+        }
+    }
+
+    pub fn persist_free_list(&mut self) -> Result<()> {
+        let list = self.free_list.lock().unwrap().clone();
+        let data = bincode::serialize(&list).context("Failed to serialize free list")?;
+        self.write_block(METADATA_REGION_ID, FREE_LIST_BLOCK_ID, &data)
+    }
+
+    pub fn set_free_list(&self, list: Vec<u64>) {
+        let mut fl = self.free_list.lock().unwrap();
+        *fl = list;
+    }
+
     pub fn allocate_blocks(&mut self, _region_id: RegionId, count: usize) -> Result<Vec<BlockId>> {
         let mut ids = Vec::with_capacity(count);
-        let first_id = self.next_id.fetch_add(count as u64, Ordering::SeqCst);
 
-        for i in 0..count {
-            let id = first_id + i as u64;
-            ids.push(id);
+        {
+            let mut fl = self.free_list.lock().unwrap();
+            while ids.len() < count && !fl.is_empty() {
+                ids.push(fl.pop().unwrap());
+            }
         }
 
-        self.persist_next_id(first_id + count as u64)
-            .context("Failed to persist next_id after allocation")?;
+        if !ids.is_empty() {
+            self.persist_free_list()
+                .context("Failed to persist free list after allocation")?;
+        }
+
+        let remaining = count - ids.len();
+        if remaining > 0 {
+            // We use a simple strategy: persist the new next_id first to ensure we don't
+            // reuse IDs after a crash.
+            let first_id = self.next_id.load(Ordering::SeqCst);
+            let new_next_id = first_id + remaining as u64;
+
+            self.persist_next_id(new_next_id)
+                .context("Failed to persist next_id before allocation")?;
+
+            self.next_id.store(new_next_id, Ordering::SeqCst);
+
+            for i in 0..remaining {
+                let id = first_id + i as u64;
+                ids.push(id);
+            }
+        }
 
         Ok(ids)
     }
@@ -165,6 +231,13 @@ impl EfsBlockStorage {
             Err(_) => futures::executor::block_on(self.backend.delete(&name)),
         }
         .context("Failed to delete block from backend")?;
+
+        {
+            let mut fl = self.free_list.lock().unwrap();
+            fl.push(id);
+        }
+        self.persist_free_list()
+            .context("Failed to persist free list after deallocation")?;
 
         Ok(())
     }

@@ -15,7 +15,7 @@ async fn test_memory_kv_config() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
 
-    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).unwrap();
+    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).await.unwrap();
 
     let data = b"memory + kv index test data";
     efs.put("test_file", data).await.unwrap();
@@ -40,6 +40,7 @@ async fn test_local_btree_config() {
         key.clone(),
         DEFAULT_CHUNK_SIZE,
     )
+    .await
     .unwrap();
     let next_id = efs_temp.storage_adapter.next_id();
 
@@ -48,6 +49,7 @@ async fn test_local_btree_config() {
         cipher.clone(),
         key.clone(),
         next_id,
+        Arc::new(std::sync::Mutex::new(Vec::new())),
         DEFAULT_CHUNK_SIZE,
         BTREE_REGION_ID,
     );
@@ -59,6 +61,7 @@ async fn test_local_btree_config() {
         .with_key(key)
         .with_index(index)
         .build()
+        .await
         .unwrap();
 
     let data = b"local + btree index test data";
@@ -78,7 +81,7 @@ async fn test_lru_memory_kv_config() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
 
-    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).unwrap();
+    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).await.unwrap();
 
     let data = b"lru cache test data";
     efs.put("cached_file", data).await.unwrap();
@@ -102,13 +105,14 @@ async fn test_local_kv_persistence() {
             key.clone(),
             DEFAULT_CHUNK_SIZE,
         )
+        .await
         .unwrap();
         efs.put("persistent_file", data).await.unwrap();
     }
 
     // Re-open
     {
-        let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).unwrap();
+        let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).await.unwrap();
         let retrieved = efs.get("persistent_file").await.unwrap();
         assert_eq!(data.to_vec(), retrieved);
     }
@@ -121,7 +125,7 @@ async fn test_small_chunks() {
     let key = vec![0u8; 32];
     let chunk_size = 1024; // 1KB chunks
 
-    let mut efs = Efs::new(storage, cipher, key, chunk_size).unwrap();
+    let mut efs = Efs::new(storage, cipher, key, chunk_size).await.unwrap();
 
     let data = vec![0u8; 5000]; // Should span multiple chunks
     efs.put("large_file", &data).await.unwrap();
@@ -137,7 +141,7 @@ async fn test_s3_mock_config() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
 
-    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).unwrap();
+    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).await.unwrap();
 
     let data = b"s3 mock test data";
     efs.put("s3_file", data).await.unwrap();

@@ -25,6 +25,7 @@ async fn test_efs_builder_custom_index() {
         cipher.clone(),
         key.clone(),
         Arc::new(AtomicU64::new(next_id)),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
         chunk_size,
         BTREE_REGION_ID,
     );
@@ -37,6 +38,7 @@ async fn test_efs_builder_custom_index() {
         .with_chunk_size(chunk_size)
         .with_index(btree_index)
         .build()
+        .await
         .unwrap();
 
     // Verify it works

@@ -105,7 +105,7 @@ impl EfsBuilder {
         self
     }
 
-    pub fn build(self) -> Result<Efs> {
+    pub async fn build(self) -> Result<Efs> {
         let storage_adapter = EfsBlockStorage::new(
             self.storage.clone(),
             self.cipher.clone(),
@@ -118,6 +118,11 @@ impl EfsBuilder {
             .context("Failed to load next_id from storage")?;
         storage_adapter.set_next_id(next_id);
 
+        let free_list = storage_adapter
+            .load_free_list()
+            .context("Failed to load free_list from storage")?;
+        storage_adapter.set_free_list(free_list);
+
         let index = if let Some(index) = self.index {
             index
         } else {
@@ -126,6 +131,7 @@ impl EfsBuilder {
                 self.cipher.clone(),
                 self.key.clone(),
                 storage_adapter.next_id(),
+                storage_adapter.free_list(),
                 self.chunk_size,
                 BTREE_REGION_ID,
             );
@@ -151,7 +157,7 @@ impl Efs {
         EfsBuilder::default()
     }
 
-    pub fn new(
+    pub async fn new(
         storage: Arc<dyn StorageBackend>,
         cipher: Arc<dyn Cipher>,
         key: Vec<u8>,
@@ -163,6 +169,7 @@ impl Efs {
             .with_key(key)
             .with_chunk_size(chunk_size)
             .build()
+            .await
     }
 
     pub async fn put(&mut self, path: &str, data: &[u8]) -> Result<()> {
@@ -221,10 +228,16 @@ impl Efs {
             .collect::<Result<Vec<_>>>()
             .context("One or more chunk uploads failed")?;
 
-        self.index
-            .insert(&path, block_ids, total_size)
+        if let Err(e) = self.index
+            .insert(&path, block_ids.clone(), total_size)
             .await
-            .context("Failed to insert file into index")?;
+        {
+            // Try to cleanup allocated blocks on index failure to prevent leakage
+            for id in block_ids {
+                let _ = self.storage_adapter.deallocate_block(FILE_DATA_REGION_ID, id);
+            }
+            return Err(e).context("Failed to insert file into index; cleaned up allocated blocks");
+        }
 
         Ok(())
     }
@@ -301,11 +314,9 @@ impl Efs {
             .await
             .context("Failed to delete from index")?;
 
-        for id in block_ids {
-            self.storage_adapter
-                .deallocate_block(FILE_DATA_REGION_ID, id)
-                .context("Storage deallocate failed")?;
-        }
+        self.storage_adapter
+            .deallocate_blocks(FILE_DATA_REGION_ID, block_ids)
+            .context("Failed to deallocate blocks")?;
 
         Ok(())
     }
@@ -332,9 +343,16 @@ impl Efs {
     #[async_recursion]
     async fn delete_dir_recursive(&mut self, path: &str) -> Result<()> {
         let contents = self.index.list_dir(path).await?;
+        
+        // Collect all deletion futures to run them in parallel
+        // Note: self is &mut, so we can't easily parallelize if we use &mut self methods.
+        // But we can collect the tasks and run them.
+        // Actually, since we need to modify the index and storage, sequential might be safer
+        // but we can at least optimize the directory traversal.
+        
         for (name, entry) in contents {
-            let full_path = if path == "/" {
-                format!("/{}", name)
+            let full_path = if path.is_empty() {
+                name
             } else {
                 format!("{}/{}", path, name)
             };
@@ -348,6 +366,7 @@ impl Efs {
             }
         }
         // Delete the region chunks if the index supports it (e.g. BtreeIndex)
+        // Currently BtreeIndex::delete_region is a no-op, leading to leaks of B-tree nodes.
         self.index.delete_region(path).await?;
         // Finally delete the directory entry from parent index
         self.index.delete(path).await?;

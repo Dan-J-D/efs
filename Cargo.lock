@@ -305,7 +305,6 @@ dependencies = [
 [[package]]
 name = "bptree"
 version = "0.1.0"
-source = "git+https://github.com/Dan-J-D/bptree#e5cd1da1bd9d3d8f183dd42f3b5135eb2a212860"
 dependencies = [
  "bincode",
  "madsim",

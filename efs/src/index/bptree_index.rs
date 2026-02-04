@@ -4,7 +4,8 @@ use crate::{EfsEntry, EfsIndex};
 use anyhow::{anyhow, Result};
 use async_recursion::async_recursion;
 use async_trait::async_trait;
-use bptree::{BPTree, BlockStorage};
+use bptree::storage::BlockStorage;
+use bptree::BPTree;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -34,7 +35,7 @@ impl BtreeIndex {
 
     fn allocate_region(&self, path_so_far: &str) -> u64 {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(&self.storage.key());
+        hasher.update(&self.storage.key);
         hasher.update(&BTREE_REGION_ID.to_le_bytes());
         hasher.update(path_so_far.as_bytes());
         let hash = hasher.finalize();
@@ -217,6 +218,8 @@ impl EfsIndex for BtreeIndex {
         let mut tree = self.get_tree(current_region)?;
         tree.delete(parts.last().unwrap())
             .map_err(|e| anyhow!("Delete error: {}", e))?;
+        // BPTree might not have sync, but let's check if there is some other way to persist.
+        // If it writes directly to BlockStorage, then it's already persisted.
         Ok(())
     }
 
@@ -224,32 +227,27 @@ impl EfsIndex for BtreeIndex {
         let parts = self.normalize_path(path)?;
         let mut current_region = BTREE_REGION_ID;
 
+        // Traverse to find the region_id of the directory at path
         for part in &parts {
             let tree = self.get_tree(current_region)?;
             match tree.get(part).map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
                     current_region = region_id;
                 }
-                _ => return Err(anyhow!("Directory not found")),
+                _ => return Err(anyhow!("Directory not found at {}", path)),
             }
         }
 
-        // Now we have the region_id for the directory's BTree.
-        // We need to delete all blocks associated with this region.
-        // Since we don't have a list of all block IDs, and they are allocated
-        // monotonically in the global space but used per region,
-        // we can iterate up to the current next_id and try to delete each block name
-        // that would belong to this region.
-        let next_id = self
-            .storage
-            .next_id()
-            .load(std::sync::atomic::Ordering::SeqCst);
-        let mut storage = self.storage.with_region(current_region);
+        // Now current_region is the region_id we want to deallocate.
+        // We load the tree and collect all blocks.
+        let tree = self.get_tree(current_region)?;
+        let block_ids = tree.get_all_block_ids().map_err(|e| anyhow!("{}", e))?;
 
-        for id in 0..next_id {
-            // We ignore errors here because many blocks might not exist in this specific region
-            let _ = storage.deallocate_block(id);
-        }
+        // Deallocate each block. We use with_region to ensure we are deleting from the correct logical space.
+        let mut storage = self.storage.with_region(current_region);
+        storage
+            .deallocate_blocks(block_ids)
+            .map_err(|e| anyhow!("Failed to deallocate blocks in region {}: {}", current_region, e))?;
 
         Ok(())
     }

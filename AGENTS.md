@@ -75,12 +75,28 @@ Data uniformity is critical for deniability.
 ### Deterministic Naming & Regions
 To maintain deniability, chunk names in the storage backend must be deterministic but appear random:
 - Use `blake3(key || region_id || block_id)` for chunk names.
-- `RegionId` separates different types of data (e.g., `METADATA`, `FILE_DATA`, `BTREE_INDEX`).
+- `RegionId` separates different types of data:
+  - `METADATA_REGION_ID` (0): Allocator state and root metadata.
+  - `FILE_DATA_REGION_ID` (1): Actual encrypted file chunks.
+  - `BTREE_REGION_ID` (2): Index nodes for the B-Tree.
 - `EfsBlockStorage` manages the mapping between logical blocks and physical storage names.
+
+### Paths & Naming
+- Always use `crate::path::normalize_path` for user-provided paths.
+- Paths are normalized to strip leading/trailing slashes and resolve `.` and `..`.
+- The root directory is represented by an empty string `""`.
+- **Naming Whitelist:** Only ASCII alphanumeric characters, dots (`.`), hyphens (`-`), and underscores (`_`) are allowed in path components.
+
+### EfsIndex & B-Trees
+- The default index is `BtreeIndex` (implemented in `efs/src/index/bptree_index.rs`).
+- It uses `BPTreeStorage` which adapts `EfsBlockStorage` for use with the `bptree` crate.
+- Index nodes are stored in the `BTREE_REGION_ID`.
+- Recursive operations (delete/put) should be handled via the high-level `Efs` methods.
 
 ### Silo Management
 `SiloManager` handles high-level operations:
 - Key derivation from passwords using `Kdf`.
+- **Multi-Silo Support:** The `silo_id` is used as a salt for the `Kdf`, allowing multiple logical volumes to coexist on the same storage backend.
 - Initialization and loading of "Silos" (logical encrypted volumes).
 - Root chunk name derivation: `hex(hasher.hash(root_key))`.
 
@@ -102,6 +118,7 @@ To maintain deniability, chunk names in the storage backend must be deterministi
 - Both the CLI and TUI use `clap` for command parsing (or at least for basic arguments).
 - Keep `main.rs` focused on routing or UI state management; move complex logic into specialized modules like `config.rs` or `session.rs`.
 - Ensure `Config` changes are backward compatible or handled via versioning.
+- **Directory Support:** The `put` command handles recursive directory uploads via `Efs::put_recursive`. The `delete` command supports a `--recursive` flag.
 
 ---
 
