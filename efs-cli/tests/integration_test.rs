@@ -28,7 +28,6 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
         .arg("init")
         .arg("--silo-id")
         .arg("test-silo")
-        .arg("--yes")
         .env("EFS_PASSWORD", "password123")
         .assert()
         .success();

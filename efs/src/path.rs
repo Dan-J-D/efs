@@ -8,13 +8,23 @@ pub fn normalize_path(path: &str) -> Result<String> {
             ".." => {
                 parts.pop();
             }
-            _ => parts.push(part),
+            _ => {
+                if !is_valid_name(part) {
+                    return Err(anyhow!("Invalid character in path component: {}", part));
+                }
+                parts.push(part);
+            }
         }
     }
     if parts.is_empty() {
         return Err(anyhow!("Invalid path: root cannot be operated on directly"));
     }
     Ok(parts.join("/"))
+}
+
+fn is_valid_name(name: &str) -> bool {
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
 }
 
 #[cfg(test)]
@@ -33,5 +43,8 @@ mod tests {
         assert!(normalize_path("").is_err());
         assert!(normalize_path(".").is_err());
         assert!(normalize_path("./..").is_err());
+        assert!(normalize_path("a/b$/c").is_err());
+        assert!(normalize_path("file name.txt").is_err());
+        assert!(normalize_path("name?").is_err());
     }
 }
