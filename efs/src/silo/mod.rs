@@ -61,7 +61,8 @@ impl SiloManager {
             data_key,
         };
 
-        let config_bytes = bincode::serialize(&config).context("Failed to serialize silo config")?;
+        let config_bytes =
+            bincode::serialize(&config).context("Failed to serialize silo config")?;
         let payload_size = UniformEnvelope::payload_size(chunk_size);
         let padded_config = Chunker::pad(config_bytes, payload_size);
 

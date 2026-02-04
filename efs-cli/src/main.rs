@@ -70,11 +70,14 @@ enum Commands {
         #[arg(short, long)]
         silo_id: String,
     },
-    /// Delete a file from a silo
+    /// Delete a file or folder from a silo
     Delete {
         #[arg(short, long)]
         silo_id: String,
         remote_path: String,
+        /// Recursive deletion for folders
+        #[arg(short, long)]
+        recursive: bool,
     },
     /// Sync mirrors
     Sync {
@@ -254,6 +257,7 @@ async fn main() -> Result<()> {
         Commands::Delete {
             silo_id,
             remote_path,
+            recursive,
         } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
@@ -277,8 +281,14 @@ async fn main() -> Result<()> {
                 data_key,
                 silo_cfg.chunk_size,
             )?;
-            efs.delete(remote_path).await?;
-            println!("File deleted successfully.");
+
+            if *recursive {
+                efs.delete_recursive(remote_path).await?;
+                println!("Folder deleted successfully.");
+            } else {
+                efs.delete(remote_path).await?;
+                println!("File deleted successfully.");
+            }
         }
         Commands::Sync { silo_id: _ } => {
             println!("Syncing mirrors...");

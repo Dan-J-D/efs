@@ -1,8 +1,8 @@
-use efs::crypto::{Kdf, Hasher, Cipher};
+use anyhow::Result;
 use efs::crypto::standard::StandardCipher;
+use efs::crypto::{Cipher, Hasher, Kdf};
 use efs::silo::SiloManager;
 use efs::storage::memory::MemoryBackend;
-use anyhow::Result;
 use std::sync::Arc;
 
 struct MockKdf;
@@ -33,29 +33,31 @@ async fn test_custom_kdf_hasher() {
     let kdf = Box::new(MockKdf);
     let hasher = Box::new(MockHasher);
     let cipher = Box::new(StandardCipher);
-    
+
     let silo_manager = SiloManager::new(kdf, cipher, hasher);
     let storage = Arc::new(MemoryBackend::new());
-    
+
     let password = b"secret";
     let silo_id = "test-silo";
     let data_key = vec![0x13; 32];
-    
+
     // Initialize silo with custom crypto
-    silo_manager.initialize_silo(
-        storage.as_ref(),
-        password,
-        silo_id,
-        1024 * 1024,
-        data_key.clone()
-    ).await.unwrap();
-    
+    silo_manager
+        .initialize_silo(
+            storage.as_ref(),
+            password,
+            silo_id,
+            1024 * 1024,
+            data_key.clone(),
+        )
+        .await
+        .unwrap();
+
     // Load it back
-    let config = silo_manager.load_silo(
-        storage.as_ref(),
-        password,
-        silo_id
-    ).await.unwrap();
-    
+    let config = silo_manager
+        .load_silo(storage.as_ref(), password, silo_id)
+        .await
+        .unwrap();
+
     assert_eq!(config.data_key, data_key);
 }

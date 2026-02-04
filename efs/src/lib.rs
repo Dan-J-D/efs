@@ -2,30 +2,42 @@ pub mod chunk;
 pub mod crypto;
 pub mod index;
 pub mod mirror;
+pub mod path;
 pub mod silo;
 pub mod storage;
-pub mod path;
 
 pub use crate::chunk::{Chunker, UniformEnvelope, DEFAULT_CHUNK_SIZE};
 pub use crate::crypto::{Cipher, Hasher, Kdf};
-pub use crate::storage::block::EfsBlockStorage;
 pub use crate::mirror::MirrorOrchestrator;
 pub use crate::silo::{SiloConfig, SiloManager};
-pub use crate::storage::{StorageBackend, RegionId, FILE_DATA_REGION_ID, BTREE_REGION_ID};
+pub use crate::storage::block::EfsBlockStorage;
+pub use crate::storage::{RegionId, StorageBackend, BTREE_REGION_ID, FILE_DATA_REGION_ID};
 
 use anyhow::{anyhow, Context, Result};
+use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use getset::{Getters, Setters};
 use std::sync::Arc;
 
+#[derive(Debug, Clone)]
+pub enum EfsEntry {
+    File {
+        block_ids: Vec<u64>,
+        total_size: u64,
+    },
+    Directory,
+}
 
 #[async_trait]
 pub trait EfsIndex: Send + Sync {
     async fn insert(&self, path: &str, block_ids: Vec<u64>, total_size: u64) -> Result<()>;
     async fn get(&self, path: &str) -> Result<Option<(Vec<u64>, u64)>>;
+    async fn get_entry(&self, path: &str) -> Result<Option<EfsEntry>>;
     async fn list(&self) -> Result<Vec<String>>;
+    async fn list_dir(&self, path: &str) -> Result<Vec<(String, EfsEntry)>>;
     async fn delete(&self, path: &str) -> Result<()>;
+    async fn delete_region(&self, path: &str) -> Result<()>;
 }
 
 pub struct Efs {
@@ -118,7 +130,8 @@ impl EfsBuilder {
                 BTREE_REGION_ID,
             );
             Arc::new(
-                crate::index::KvIndex::new(index_storage).context("Failed to create KvIndex")?,
+                crate::index::BtreeIndex::new(index_storage)
+                    .context("Failed to create BtreeIndex")?,
             )
         };
 
@@ -173,7 +186,7 @@ impl Efs {
             let storage = self.storage.clone();
             let chunk_size = self.chunk_size;
             let chunk_data = chunk.to_vec();
-            
+
             let name = self.storage_adapter.block_name(FILE_DATA_REGION_ID, id);
 
             upload_futures.push(async move {
@@ -185,7 +198,7 @@ impl Efs {
                 let (ciphertext, nonce, tag) = cipher
                     .encrypt(&key, &ad, &padded)
                     .context("Encryption failed")?;
-                
+
                 let envelope = UniformEnvelope::new(nonce, tag, ciphertext);
                 let envelope_bytes = envelope
                     .serialize(chunk_size)
@@ -195,7 +208,7 @@ impl Efs {
                     .put(&name, envelope_bytes)
                     .await
                     .context("Storage put failed")?;
-                
+
                 Ok::<(), anyhow::Error>(())
             });
         }
@@ -234,11 +247,8 @@ impl Efs {
             let name = self.storage_adapter.block_name(FILE_DATA_REGION_ID, id);
 
             download_futures.push(async move {
-                let envelope_bytes = storage
-                    .get(&name)
-                    .await
-                    .context("Storage get failed")?;
-                
+                let envelope_bytes = storage.get(&name).await.context("Storage get failed")?;
+
                 let envelope = UniformEnvelope::deserialize(&envelope_bytes)
                     .context("Deserialization failed")?;
 
@@ -291,29 +301,56 @@ impl Efs {
             .await
             .context("Failed to delete from index")?;
 
-        let mut delete_futures = Vec::new();
-
         for id in block_ids {
-            let storage = self.storage.clone();
-            let name = self.storage_adapter.block_name(FILE_DATA_REGION_ID, id);
-
-            delete_futures.push(async move {
-                storage
-                    .delete(&name)
-                    .await
-                    .context("Storage delete failed")?;
-                Ok::<(), anyhow::Error>(())
-            });
+            self.storage_adapter
+                .deallocate_block(FILE_DATA_REGION_ID, id)
+                .context("Storage deallocate failed")?;
         }
 
-        stream::iter(delete_futures)
-            .buffer_unordered(8)
-            .collect::<Vec<_>>()
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>>>()
-            .context("One or more chunk deletions failed")?;
+        Ok(())
+    }
 
+    pub async fn delete_recursive(&mut self, path: &str) -> Result<()> {
+        let path = crate::path::normalize_path(path)?;
+        let entry = self
+            .index
+            .get_entry(&path)
+            .await?
+            .ok_or_else(|| anyhow!("Path not found: {}", path))?;
+
+        match entry {
+            EfsEntry::File { .. } => {
+                self.delete(&path).await?;
+            }
+            EfsEntry::Directory => {
+                self.delete_dir_recursive(&path).await?;
+            }
+        }
+        Ok(())
+    }
+
+    #[async_recursion]
+    async fn delete_dir_recursive(&mut self, path: &str) -> Result<()> {
+        let contents = self.index.list_dir(path).await?;
+        for (name, entry) in contents {
+            let full_path = if path == "/" {
+                format!("/{}", name)
+            } else {
+                format!("{}/{}", path, name)
+            };
+            match entry {
+                EfsEntry::File { .. } => {
+                    self.delete(&full_path).await?;
+                }
+                EfsEntry::Directory => {
+                    self.delete_dir_recursive(&full_path).await?;
+                }
+            }
+        }
+        // Delete the region chunks if the index supports it (e.g. BtreeIndex)
+        self.index.delete_region(path).await?;
+        // Finally delete the directory entry from parent index
+        self.index.delete(path).await?;
         Ok(())
     }
 }

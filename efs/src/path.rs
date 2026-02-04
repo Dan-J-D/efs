@@ -17,7 +17,7 @@ pub fn normalize_path(path: &str) -> Result<String> {
         }
     }
     if parts.is_empty() {
-        return Err(anyhow!("Invalid path: root cannot be operated on directly"));
+        return Ok("".to_string());
     }
     Ok(parts.join("/"))
 }
@@ -39,10 +39,10 @@ mod tests {
         assert_eq!(normalize_path("/a/b/c").unwrap(), "a/b/c");
         assert_eq!(normalize_path("a/b/../c").unwrap(), "a/c");
         assert_eq!(normalize_path("/../../a").unwrap(), "a");
-        assert!(normalize_path("/").is_err());
-        assert!(normalize_path("").is_err());
-        assert!(normalize_path(".").is_err());
-        assert!(normalize_path("./..").is_err());
+        assert_eq!(normalize_path("/").unwrap(), "");
+        assert_eq!(normalize_path("").unwrap(), "");
+        assert_eq!(normalize_path(".").unwrap(), "");
+        assert_eq!(normalize_path("./..").unwrap(), "");
         assert!(normalize_path("a/b$/c").is_err());
         assert!(normalize_path("file name.txt").is_err());
         assert!(normalize_path("name?").is_err());

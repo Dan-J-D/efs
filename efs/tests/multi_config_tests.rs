@@ -1,8 +1,8 @@
 use efs::crypto::standard::StandardCipher;
 use efs::index::{BPTreeStorage, BtreeIndex};
 use efs::storage::local::LocalBackend;
-use efs::storage::memory::MemoryBackend;
 use efs::storage::lru::LruBackend;
+use efs::storage::memory::MemoryBackend;
 use efs::storage::s3::S3Backend;
 use efs::{Efs, BTREE_REGION_ID, DEFAULT_CHUNK_SIZE};
 use object_store::memory::InMemory;
@@ -14,15 +14,15 @@ async fn test_memory_kv_config() {
     let storage = Arc::new(MemoryBackend::new());
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
-    
+
     let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).unwrap();
-    
+
     let data = b"memory + kv index test data";
     efs.put("test_file", data).await.unwrap();
-    
+
     let retrieved = efs.get("test_file").await.unwrap();
     assert_eq!(data.to_vec(), retrieved);
-    
+
     let list = efs.index.list().await.unwrap();
     assert_eq!(list, vec!["test_file"]);
 }
@@ -33,10 +33,16 @@ async fn test_local_btree_config() {
     let storage = Arc::new(LocalBackend::new(tmp.path()).unwrap());
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
-    
-    let efs_temp = Efs::new(storage.clone(), cipher.clone(), key.clone(), DEFAULT_CHUNK_SIZE).unwrap();
+
+    let efs_temp = Efs::new(
+        storage.clone(),
+        cipher.clone(),
+        key.clone(),
+        DEFAULT_CHUNK_SIZE,
+    )
+    .unwrap();
     let next_id = efs_temp.storage_adapter.next_id();
-    
+
     let index_storage = BPTreeStorage::new(
         storage.clone(),
         cipher.clone(),
@@ -46,7 +52,7 @@ async fn test_local_btree_config() {
         BTREE_REGION_ID,
     );
     let index = Arc::new(BtreeIndex::new(index_storage).unwrap());
-    
+
     let mut efs = Efs::builder()
         .with_storage(storage)
         .with_cipher(cipher)
@@ -54,13 +60,13 @@ async fn test_local_btree_config() {
         .with_index(index)
         .build()
         .unwrap();
-        
+
     let data = b"local + btree index test data";
     efs.put("/dir1/dir2/test_file", data).await.unwrap();
-    
+
     let retrieved = efs.get("/dir1/dir2/test_file").await.unwrap();
     assert_eq!(data.to_vec(), retrieved);
-    
+
     let list = efs.index.list().await.unwrap();
     assert!(list.contains(&"dir1/dir2/test_file".to_string()));
 }
@@ -71,12 +77,12 @@ async fn test_lru_memory_kv_config() {
     let storage = Arc::new(LruBackend::new(inner_storage, 10, None)); // 10 blocks capacity
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
-    
+
     let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).unwrap();
-    
+
     let data = b"lru cache test data";
     efs.put("cached_file", data).await.unwrap();
-    
+
     let retrieved = efs.get("cached_file").await.unwrap();
     assert_eq!(data.to_vec(), retrieved);
 }
@@ -87,13 +93,19 @@ async fn test_local_kv_persistence() {
     let storage = Arc::new(LocalBackend::new(tmp.path()).unwrap());
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
-    
+
     let data = b"persistence test data";
     {
-        let mut efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), DEFAULT_CHUNK_SIZE).unwrap();
+        let mut efs = Efs::new(
+            storage.clone(),
+            cipher.clone(),
+            key.clone(),
+            DEFAULT_CHUNK_SIZE,
+        )
+        .unwrap();
         efs.put("persistent_file", data).await.unwrap();
     }
-    
+
     // Re-open
     {
         let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).unwrap();
@@ -108,12 +120,12 @@ async fn test_small_chunks() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
     let chunk_size = 1024; // 1KB chunks
-    
+
     let mut efs = Efs::new(storage, cipher, key, chunk_size).unwrap();
-    
+
     let data = vec![0u8; 5000]; // Should span multiple chunks
     efs.put("large_file", &data).await.unwrap();
-    
+
     let retrieved = efs.get("large_file").await.unwrap();
     assert_eq!(data, retrieved);
 }
@@ -124,12 +136,12 @@ async fn test_s3_mock_config() {
     let storage = Arc::new(S3Backend::new(store));
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
-    
+
     let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE).unwrap();
-    
+
     let data = b"s3 mock test data";
     efs.put("s3_file", data).await.unwrap();
-    
+
     let retrieved = efs.get("s3_file").await.unwrap();
     assert_eq!(data.to_vec(), retrieved);
 }

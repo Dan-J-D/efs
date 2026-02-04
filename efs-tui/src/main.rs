@@ -114,7 +114,7 @@ impl App {
 
         if let Some(first_silo) = cfg.known_silos.first() {
             self.silo_id = first_silo.clone();
-            if let Err(_) = self.rebuild_efs().await {
+            if self.rebuild_efs().await.is_err() {
                 self.state = AppState::PromptInitSilo {
                     silo_id: self.silo_id.clone(),
                 };
@@ -262,7 +262,7 @@ impl App {
 
         let mut sorted_items: Vec<FileItem> = items.into_iter().collect();
         sorted_items.sort();
-        
+
         if self.current_dir != "/" {
             sorted_items.insert(0, FileItem::Dir("..".to_string()));
         }
@@ -275,11 +275,13 @@ impl App {
             FileItem::Dir(n) => n,
             FileItem::File(n) => n,
         };
-        
+
         if name == ".." {
             if let Some(idx) = self.current_dir.trim_end_matches('/').rfind('/') {
                 let mut p = self.current_dir[..idx].to_string();
-                if p.is_empty() { p = "/".to_string(); }
+                if p.is_empty() {
+                    p = "/".to_string();
+                }
                 return p;
             }
             return "/".to_string();
@@ -419,7 +421,8 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                             KeyCode::Char('d') if app.efs.is_some() => {
                                 if let Some(i) = app.file_list_state.selected() {
                                     if let Some(FileItem::File(name)) = current_view.get(i) {
-                                        let full_path = app.get_full_path(&FileItem::File(name.clone()));
+                                        let full_path =
+                                            app.get_full_path(&FileItem::File(name.clone()));
                                         app.state = AppState::Download {
                                             remote_path: full_path,
                                             local_path: name.clone(),
@@ -429,8 +432,8 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                             }
                             KeyCode::Char('x') if app.efs.is_some() => {
                                 if let Some(i) = app.file_list_state.selected() {
-                                    if let Some(FileItem::File(name)) = current_view.get(i) {
-                                        let full_path = app.get_full_path(&FileItem::File(name.clone()));
+                                    if let Some(item) = current_view.get(i) {
+                                        let full_path = app.get_full_path(item);
                                         app.state = AppState::ConfirmDelete { path: full_path };
                                     }
                                 }
@@ -441,13 +444,22 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                                         match item {
                                             FileItem::Dir(name) => {
                                                 if name == ".." {
-                                                    if let Some(idx) = app.current_dir.trim_end_matches('/').rfind('/') {
-                                                        app.current_dir = app.current_dir[..idx].to_string();
-                                                        if app.current_dir.is_empty() { app.current_dir = "/".to_string(); }
+                                                    if let Some(idx) = app
+                                                        .current_dir
+                                                        .trim_end_matches('/')
+                                                        .rfind('/')
+                                                    {
+                                                        app.current_dir =
+                                                            app.current_dir[..idx].to_string();
+                                                        if app.current_dir.is_empty() {
+                                                            app.current_dir = "/".to_string();
+                                                        }
                                                     }
                                                 } else {
                                                     let mut new_dir = app.current_dir.clone();
-                                                    if !new_dir.ends_with('/') { new_dir.push('/'); }
+                                                    if !new_dir.ends_with('/') {
+                                                        new_dir.push('/');
+                                                    }
                                                     new_dir.push_str(name);
                                                     app.current_dir = new_dir;
                                                 }
@@ -624,7 +636,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
 
                             if let Some(silo_id) = selected_silo {
                                 app.silo_id = silo_id.clone();
-                                if let Err(_) = app.rebuild_efs().await {
+                                if app.rebuild_efs().await.is_err() {
                                     app.state = AppState::PromptInitSilo {
                                         silo_id: silo_id.clone(),
                                     };
@@ -681,7 +693,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                                 app.state = AppState::Error(e.to_string());
                             } else {
                                 app.silo_id = silo_id;
-                                if let Err(_) = app.rebuild_efs().await {
+                                if app.rebuild_efs().await.is_err() {
                                     app.state = AppState::PromptInitSilo {
                                         silo_id: app.silo_id.clone(),
                                     };
@@ -790,7 +802,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                         KeyCode::Char('y') | KeyCode::Enter => {
                             let p = path.clone();
                             if let Some(efs) = &mut app.efs {
-                                if let Err(e) = efs.delete(&p).await {
+                                if let Err(e) = efs.delete_recursive(&p).await {
                                     app.state = AppState::Error(e.to_string());
                                 } else {
                                     let _ = app.refresh_files().await;
@@ -833,8 +845,8 @@ fn ui(f: &mut Frame, app: &mut App) {
                 )
                 .split(size);
 
-            let title = Paragraph::new("EFS TUI - Login")
-                .block(Block::default().borders(Borders::ALL));
+            let title =
+                Paragraph::new("EFS TUI - Login").block(Block::default().borders(Borders::ALL));
             f.render_widget(title, chunks[0]);
 
             let password_display = "*".repeat(app.password.len());
@@ -977,9 +989,8 @@ fn ui(f: &mut Frame, app: &mut App) {
                 f.render_widget(input, chunks[i]);
             }
 
-            let help =
-                Paragraph::new("Enter: save | Tab/Arrows: switch fields | Esc: cancel")
-                    .block(Block::default());
+            let help = Paragraph::new("Enter: save | Tab/Arrows: switch fields | Esc: cancel")
+                .block(Block::default());
             f.render_widget(help, chunks[labels.len()]);
         }
         AppState::ManageSilos => {
@@ -1046,7 +1057,9 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .constraints([Constraint::Length(7), Constraint::Min(0)].as_ref())
                 .split(size);
 
-            let block = Block::default().borders(Borders::ALL).title("Silo Not Found");
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title("Silo Not Found");
             let paragraph = Paragraph::new(format!(
                 "\nSilo '{}' was not found in storage.\n\nWould you like to initialize it?",
                 silo_id
@@ -1126,8 +1139,11 @@ fn ui(f: &mut Frame, app: &mut App) {
                 )
                 .split(size);
 
-            let rp_widget = Paragraph::new(remote_path.as_str())
-                .block(Block::default().borders(Borders::ALL).title("Remote Path (Selected)"));
+            let rp_widget = Paragraph::new(remote_path.as_str()).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Remote Path (Selected)"),
+            );
             let lp_widget = Paragraph::new(local_path.as_str()).block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -1139,13 +1155,12 @@ fn ui(f: &mut Frame, app: &mut App) {
 
             f.render_widget(rp_widget, chunks[0]);
             f.render_widget(lp_widget, chunks[1]);
-            f.render_widget(
-                Paragraph::new("Enter: download | Esc: cancel"),
-                chunks[2],
-            );
+            f.render_widget(Paragraph::new("Enter: download | Esc: cancel"), chunks[2]);
         }
         AppState::ConfirmDelete { path } => {
-            let block = Block::default().borders(Borders::ALL).title("Confirm Delete");
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title("Confirm Delete");
             let paragraph =
                 Paragraph::new(format!("Are you sure you want to delete '{}'? (y/n)", path))
                     .block(block);

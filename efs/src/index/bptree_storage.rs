@@ -174,7 +174,18 @@ impl BlockStorage for BPTreeStorage {
         Ok(id)
     }
 
-    fn deallocate_block(&mut self, _id: BlockId) -> Result<(), Self::Error> {
+    fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error> {
+        let name = self.block_name(id);
+
+        let result = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                tokio::task::block_in_place(|| handle.block_on(self.backend.delete(&name)))
+            }
+            Err(_) => futures::executor::block_on(self.backend.delete(&name)),
+        };
+
+        result.map_err(|e| StorageError::Serialization(e.to_string()))?;
+
         Ok(())
     }
 

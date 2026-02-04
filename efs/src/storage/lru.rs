@@ -18,7 +18,7 @@ pub struct LruBackend {
 
 impl LruBackend {
     /// Create a new LruBackend wrapping another backend.
-    /// 
+    ///
     /// # Arguments
     /// * `inner` - The backend to wrap (e.g., MemoryBackend or LocalBackend)
     /// * `max_count` - Maximum number of items to keep in cache
@@ -71,7 +71,7 @@ impl LruBackend {
 impl StorageBackend for LruBackend {
     async fn put(&self, name: &str, data: Vec<u8>) -> Result<()> {
         let size = data.len();
-        
+
         // Put into inner storage first
         self.inner.put(name, data).await?;
 
@@ -105,7 +105,7 @@ impl StorageBackend for LruBackend {
 
     async fn get(&self, name: &str) -> Result<Vec<u8>> {
         let data = self.inner.get(name).await?;
-        
+
         let evicted = {
             let mut cache = self.cache.lock().await;
             if cache.get(name).is_none() {
@@ -133,7 +133,7 @@ impl StorageBackend for LruBackend {
 
     async fn delete(&self, name: &str) -> Result<()> {
         self.inner.delete(name).await?;
-        
+
         let mut cache = self.cache.lock().await;
         if let Some(size) = cache.pop(name) {
             let mut current_size = self.current_size.lock().await;

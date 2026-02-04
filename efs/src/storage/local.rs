@@ -13,7 +13,8 @@ impl LocalBackend {
     pub fn new(root: impl AsRef<std::path::Path>) -> Result<Self> {
         Ok(Self {
             store: Arc::new(
-                LocalFileSystem::new_with_prefix(root).context("Failed to initialize local storage")?,
+                LocalFileSystem::new_with_prefix(root)
+                    .context("Failed to initialize local storage")?,
             ),
         })
     }

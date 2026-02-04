@@ -154,4 +154,25 @@ impl EfsBlockStorage {
         let ids = self.allocate_blocks(region_id, 1)?;
         Ok(ids[0])
     }
+
+    pub fn deallocate_block(&mut self, region_id: RegionId, id: BlockId) -> Result<()> {
+        let name = self.block_name(region_id, id);
+
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                tokio::task::block_in_place(|| handle.block_on(self.backend.delete(&name)))
+            }
+            Err(_) => futures::executor::block_on(self.backend.delete(&name)),
+        }
+        .context("Failed to delete block from backend")?;
+
+        Ok(())
+    }
+
+    pub fn deallocate_blocks(&mut self, region_id: RegionId, ids: Vec<BlockId>) -> Result<()> {
+        for id in ids {
+            self.deallocate_block(region_id, id)?;
+        }
+        Ok(())
+    }
 }

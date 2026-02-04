@@ -1,10 +1,10 @@
 use crate::index::BPTreeStorage;
 use crate::storage::BTREE_REGION_ID;
-use crate::EfsIndex;
+use crate::{EfsEntry, EfsIndex};
 use anyhow::{anyhow, Result};
 use async_recursion::async_recursion;
 use async_trait::async_trait;
-use bptree::BPTree;
+use bptree::{BPTree, BlockStorage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -45,6 +45,9 @@ impl BtreeIndex {
 
     fn normalize_path(&self, path: &str) -> Result<Vec<String>> {
         let normalized = crate::path::normalize_path(path)?;
+        if normalized.is_empty() {
+            return Ok(vec![]);
+        }
         Ok(normalized.split('/').map(|s| s.to_string()).collect())
     }
 }
@@ -62,6 +65,7 @@ impl EfsIndex for BtreeIndex {
             path_so_far.push_str(part);
 
             let mut tree = self.get_tree(current_region)?;
+
             match tree.get(part).map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
                     current_region = region_id;
@@ -97,18 +101,35 @@ impl EfsIndex for BtreeIndex {
     }
 
     async fn get(&self, path: &str) -> Result<Option<(Vec<u64>, u64)>> {
+        match self.get_entry(path).await? {
+            Some(EfsEntry::File {
+                block_ids,
+                total_size,
+            }) => Ok(Some((block_ids, total_size))),
+            Some(EfsEntry::Directory) => Err(anyhow!("Path is a directory")),
+            None => Ok(None),
+        }
+    }
+
+    async fn get_entry(&self, path: &str) -> Result<Option<EfsEntry>> {
         let parts = match self.normalize_path(path) {
             Ok(p) => p,
             Err(_) => return Ok(None),
         };
 
+        if parts.is_empty() {
+            return Ok(Some(EfsEntry::Directory));
+        }
+
         let mut current_region = BTREE_REGION_ID;
         for i in 0..parts.len() {
             let tree = self.get_tree(current_region)?;
-            match tree.get(&parts[i]).map_err(|e| anyhow!("{}", e))? {
+            let part = &parts[i];
+
+            match tree.get(part).map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
                     if i == parts.len() - 1 {
-                        return Err(anyhow!("Path is a directory"));
+                        return Ok(Some(EfsEntry::Directory));
                     }
                     current_region = region_id;
                 }
@@ -117,12 +138,17 @@ impl EfsIndex for BtreeIndex {
                     total_size,
                 }) => {
                     if i == parts.len() - 1 {
-                        return Ok(Some((block_ids, total_size)));
+                        return Ok(Some(EfsEntry::File {
+                            block_ids,
+                            total_size,
+                        }));
                     } else {
-                        return Err(anyhow!("Path component '{}' is a file", parts[i]));
+                        return Err(anyhow!("Path component '{}' is a file", part));
                     }
                 }
-                None => return Ok(None),
+                None => {
+                    return Ok(None);
+                }
             }
         }
 
@@ -136,8 +162,46 @@ impl EfsIndex for BtreeIndex {
         Ok(results)
     }
 
+    async fn list_dir(&self, path: &str) -> Result<Vec<(String, EfsEntry)>> {
+        let parts = self.normalize_path(path)?;
+        let mut current_region = BTREE_REGION_ID;
+
+        if !parts.is_empty() {
+            for part in parts {
+                let tree = self.get_tree(current_region)?;
+                match tree.get(&part).map_err(|e| anyhow!("{}", e))? {
+                    Some(IndexEntry::Directory { region_id }) => {
+                        current_region = region_id;
+                    }
+                    _ => return Err(anyhow!("Directory not found")),
+                }
+            }
+        }
+
+        let tree = self.get_tree(current_region)?;
+        let mut results = Vec::new();
+        for result in tree.iter().map_err(|e| anyhow!("{}", e))? {
+            let (name, entry) = result.map_err(|e| anyhow!("{}", e))?;
+            let efs_entry = match entry {
+                IndexEntry::File {
+                    block_ids,
+                    total_size,
+                } => EfsEntry::File {
+                    block_ids,
+                    total_size,
+                },
+                IndexEntry::Directory { .. } => EfsEntry::Directory,
+            };
+            results.push((name, efs_entry));
+        }
+        Ok(results)
+    }
+
     async fn delete(&self, path: &str) -> Result<()> {
         let parts = self.normalize_path(path)?;
+        if parts.is_empty() {
+            return Err(anyhow!("Cannot delete root directory"));
+        }
 
         let mut current_region = BTREE_REGION_ID;
         for part in parts.iter().take(parts.len() - 1) {
@@ -153,6 +217,37 @@ impl EfsIndex for BtreeIndex {
         let mut tree = self.get_tree(current_region)?;
         tree.delete(parts.last().unwrap())
             .map_err(|e| anyhow!("Delete error: {}", e))?;
+        Ok(())
+    }
+
+    async fn delete_region(&self, path: &str) -> Result<()> {
+        let parts = self.normalize_path(path)?;
+        let mut current_region = BTREE_REGION_ID;
+
+        for part in &parts {
+            let tree = self.get_tree(current_region)?;
+            match tree.get(part).map_err(|e| anyhow!("{}", e))? {
+                Some(IndexEntry::Directory { region_id }) => {
+                    current_region = region_id;
+                }
+                _ => return Err(anyhow!("Directory not found")),
+            }
+        }
+
+        // Now we have the region_id for the directory's BTree.
+        // We need to delete all blocks associated with this region.
+        // Since we don't have a list of all block IDs, and they are allocated
+        // monotonically in the global space but used per region,
+        // we can iterate up to the current next_id and try to delete each block name
+        // that would belong to this region.
+        let next_id = self.storage.next_id().load(std::sync::atomic::Ordering::SeqCst);
+        let mut storage = self.storage.with_region(current_region);
+
+        for id in 0..next_id {
+            // We ignore errors here because many blocks might not exist in this specific region
+            let _ = storage.deallocate_block(id);
+        }
+
         Ok(())
     }
 }
