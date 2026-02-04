@@ -21,7 +21,6 @@ async fn test_btree_index_hierarchical() {
         cipher.clone(),
         key.clone(),
         next_id.clone(),
-        Arc::new(std::sync::Mutex::new(Vec::new())),
         chunk_size,
         BTREE_REGION_ID,
     );

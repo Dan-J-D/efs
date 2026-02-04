@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use bptree::storage::BlockId;
+use object_store::Error as ObjectStoreError;
 
 #[async_trait]
 pub trait StorageBackend: Send + Sync {
@@ -26,3 +27,13 @@ pub mod local;
 pub mod lru;
 pub mod memory;
 pub mod s3;
+
+pub fn is_not_found(err: &anyhow::Error) -> bool {
+    if let Some(e) = err.downcast_ref::<ObjectStoreError>() {
+        return matches!(e, ObjectStoreError::NotFound { .. });
+    }
+    if let Some(e) = err.downcast_ref::<std::io::Error>() {
+        return e.kind() == std::io::ErrorKind::NotFound;
+    }
+    false
+}

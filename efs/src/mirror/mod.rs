@@ -1,5 +1,5 @@
 use crate::storage::StorageBackend;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use futures::future::join_all;
 
@@ -40,13 +40,25 @@ impl StorageBackend for MirrorOrchestrator {
     }
 
     async fn get(&self, name: &str) -> Result<Vec<u8>> {
+        let mut last_not_found = None;
         for backend in &self.backends {
             match backend.get(name).await {
                 Ok(data) => return Ok(data),
-                Err(_) => continue, // Fallback to next mirror
+                Err(e) => {
+                    if crate::storage::is_not_found(&e) {
+                        last_not_found = Some(e);
+                    } else {
+                        return Err(e).context(format!("Mirror read error for {}", name));
+                    }
+                }
             }
         }
-        Err(anyhow!("Failed to read from all mirrors for {}", name))
+        
+        if let Some(e) = last_not_found {
+            Err(e)
+        } else {
+            Err(anyhow!("Failed to read from all mirrors for {}", name))
+        }
     }
 
     async fn delete(&self, name: &str) -> Result<()> {
@@ -66,8 +78,6 @@ impl StorageBackend for MirrorOrchestrator {
     }
 
     async fn list(&self) -> Result<Vec<String>> {
-        // For list, we return the union of all backends or just the primary?
-        // Usually, the primary should have everything.
         if self.backends.is_empty() {
             return Ok(Vec::new());
         }

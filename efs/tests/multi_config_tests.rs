@@ -49,7 +49,6 @@ async fn test_local_btree_config() {
         cipher.clone(),
         key.clone(),
         next_id,
-        Arc::new(std::sync::Mutex::new(Vec::new())),
         DEFAULT_CHUNK_SIZE,
         BTREE_REGION_ID,
     );

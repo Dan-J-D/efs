@@ -1,5 +1,5 @@
 use super::StorageBackend;
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::StreamExt;
 use object_store::{memory::InMemory, ObjectStore};
@@ -30,7 +30,7 @@ impl StorageBackend for MemoryBackend {
         self.store
             .put(&path, data.into())
             .await
-            .map_err(|e| anyhow!("Memory put error: {}", e))?;
+            .context("Memory put error")?;
         Ok(())
     }
 
@@ -40,11 +40,11 @@ impl StorageBackend for MemoryBackend {
             .store
             .get(&path)
             .await
-            .map_err(|e| anyhow!("Memory get error: {}", e))?;
+            .context("Memory get error")?;
         let bytes = result
             .bytes()
             .await
-            .map_err(|e| anyhow!("Memory collect error: {}", e))?;
+            .context("Memory collect error")?;
         Ok(bytes.to_vec())
     }
 
@@ -53,7 +53,7 @@ impl StorageBackend for MemoryBackend {
         self.store
             .delete(&path)
             .await
-            .map_err(|e| anyhow!("Memory delete error: {}", e))?;
+            .context("Memory delete error")?;
         Ok(())
     }
 
@@ -61,7 +61,7 @@ impl StorageBackend for MemoryBackend {
         let mut stream = self.store.list(None);
         let mut keys = Vec::new();
         while let Some(meta) = stream.next().await {
-            let meta = meta.map_err(|e| anyhow!("Memory list error: {}", e))?;
+            let meta = meta.context("Memory list error")?;
             keys.push(meta.location.to_string());
         }
         Ok(keys)

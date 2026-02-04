@@ -1,6 +1,6 @@
 use anyhow::Result;
 use efs::crypto::standard::StandardCipher;
-use efs::crypto::{Cipher, Hasher, Kdf};
+use efs::crypto::{Hasher, Kdf};
 use efs::silo::SiloManager;
 use efs::storage::memory::MemoryBackend;
 use std::sync::Arc;

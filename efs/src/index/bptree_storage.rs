@@ -1,6 +1,6 @@
 use crate::chunk::{Chunker, UniformEnvelope};
 use crate::crypto::Cipher;
-use crate::storage::{RegionId, StorageBackend};
+use crate::storage::{RegionId, StorageBackend, ALLOCATOR_STATE_BLOCK_ID, METADATA_REGION_ID};
 use anyhow::Result;
 use bptree::storage::{BlockId, BlockStorage, StorageError};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,7 +12,6 @@ pub struct BPTreeStorage {
     pub cipher: Arc<dyn Cipher>,
     pub key: Vec<u8>,
     pub next_id: Arc<AtomicU64>,
-    pub free_list: Arc<std::sync::Mutex<Vec<u64>>>,
     pub chunk_size: usize,
     pub region_id: RegionId,
 }
@@ -23,7 +22,6 @@ impl BPTreeStorage {
         cipher: Arc<dyn Cipher>,
         key: Vec<u8>,
         next_id: Arc<AtomicU64>,
-        free_list: Arc<std::sync::Mutex<Vec<u64>>>,
         chunk_size: usize,
         region_id: RegionId,
     ) -> Self {
@@ -32,7 +30,6 @@ impl BPTreeStorage {
             cipher,
             key,
             next_id,
-            free_list,
             chunk_size,
             region_id,
         }
@@ -42,6 +39,14 @@ impl BPTreeStorage {
         let mut cloned = self.clone();
         cloned.region_id = region_id;
         cloned
+    }
+
+    fn persist_next_id(&mut self, next_id: u64) -> Result<(), StorageError> {
+        let old_region = self.region_id;
+        self.region_id = METADATA_REGION_ID;
+        let res = self.write_block(ALLOCATOR_STATE_BLOCK_ID, &next_id.to_le_bytes());
+        self.region_id = old_region;
+        res
     }
 
     fn block_name(&self, id: BlockId) -> String {
@@ -64,7 +69,13 @@ impl BlockStorage for BPTreeStorage {
             Err(_) => futures::executor::block_on(self.backend.get(&name)),
         };
 
-        let envelope_bytes = result.map_err(|_| StorageError::BlockNotFound(id))?;
+        let envelope_bytes = result.map_err(|e| {
+            if crate::storage::is_not_found(&e) {
+                StorageError::BlockNotFound(id)
+            } else {
+                StorageError::Serialization(format!("Storage error: {}", e))
+            }
+        })?;
         let envelope = UniformEnvelope::deserialize(&envelope_bytes)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
 
@@ -119,12 +130,11 @@ impl BlockStorage for BPTreeStorage {
     }
 
     fn allocate_block(&mut self) -> Result<BlockId, Self::Error> {
-        let mut fl = self.free_list.lock().unwrap();
-        if let Some(id) = fl.pop() {
-            return Ok(id);
-        }
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        Ok(id)
+        let current_id = self.next_id.load(Ordering::SeqCst);
+        let new_next_id = current_id + 1;
+        self.persist_next_id(new_next_id)?;
+        self.next_id.store(new_next_id, Ordering::SeqCst);
+        Ok(current_id)
     }
 
     fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error> {
@@ -136,11 +146,6 @@ impl BlockStorage for BPTreeStorage {
             Err(_) => futures::executor::block_on(self.backend.delete(&name)),
         };
         let _ = result;
-
-        if id != 1 {
-            let mut fl = self.free_list.lock().unwrap();
-            fl.push(id);
-        }
         Ok(())
     }
 
@@ -153,13 +158,6 @@ impl BlockStorage for BPTreeStorage {
                 }
                 Err(_) => futures::executor::block_on(self.backend.delete(&name)),
             };
-        }
-
-        let mut fl = self.free_list.lock().unwrap();
-        for id in ids {
-            if id != 1 {
-                fl.push(id);
-            }
         }
         Ok(())
     }

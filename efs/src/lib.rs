@@ -118,11 +118,6 @@ impl EfsBuilder {
             .context("Failed to load next_id from storage")?;
         storage_adapter.set_next_id(next_id);
 
-        let free_list = storage_adapter
-            .load_free_list()
-            .context("Failed to load free_list from storage")?;
-        storage_adapter.set_free_list(free_list);
-
         let index = if let Some(index) = self.index {
             index
         } else {
@@ -131,7 +126,6 @@ impl EfsBuilder {
                 self.cipher.clone(),
                 self.key.clone(),
                 storage_adapter.next_id(),
-                storage_adapter.free_list(),
                 self.chunk_size,
                 BTREE_REGION_ID,
             );
@@ -391,8 +385,7 @@ impl Efs {
         self.index.delete_region(path).await?;
         // Finally delete the directory entry from parent index
         self.index.delete(path).await?;
-        
-        self.storage_adapter.persist_free_list()?;
+
         Ok(())
     }
 
