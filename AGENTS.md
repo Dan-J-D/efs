@@ -4,12 +4,13 @@ This document provides essential instructions for agentic coding tools operating
 
 ## 1. Execution Commands
 
-The project is a Rust workspace consisting of the `efs` library and `efs-cli`.
+The project is a Rust workspace consisting of the `efs` library, `efs-cli`, and `efs-tui`.
 
 ### Build & Lint
 - **Build Workspace:** `cargo build`
 - **Build Library:** `cargo build -p efs`
 - **Build CLI:** `cargo build -p efs-cli`
+- **Build TUI:** `cargo build -p efs-tui`
 - **Check (Fast):** `cargo check`
 - **Lint:** `cargo clippy --workspace -- -D warnings`
 - **Format:** `cargo fmt --all`
@@ -97,9 +98,9 @@ To maintain deniability, chunk names in the storage backend must be deterministi
 3. Write unit tests in the same file or integration tests in `efs/tests/`.
 4. Run `cargo fmt` and `cargo clippy` before finalizing.
 
-### Modifying the CLI
-- The CLI uses `clap` for command parsing.
-- Keep `main.rs` focused on routing; move complex logic into specialized modules like `config.rs` or `session.rs`.
+### Modifying the CLI & TUI
+- Both the CLI and TUI use `clap` for command parsing (or at least for basic arguments).
+- Keep `main.rs` focused on routing or UI state management; move complex logic into specialized modules like `config.rs` or `session.rs`.
 - Ensure `Config` changes are backward compatible or handled via versioning.
 
 ---
