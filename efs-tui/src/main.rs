@@ -149,15 +149,10 @@ impl App {
             .load_silo(storage.as_ref(), self.password.as_bytes(), &self.silo_id)
             .await?;
 
-        let data_key = cfg
-            .data_key
-            .clone()
-            .ok_or_else(|| anyhow!("Data key not found in config. Run efs-cli init first."))?;
-
         let efs = Efs::new(
             storage,
             Arc::new(StandardCipher),
-            data_key,
+            silo_cfg.data_key,
             silo_cfg.chunk_size,
         )?;
 
@@ -205,13 +200,9 @@ impl App {
             Box::new(StandardHasher),
         );
 
-        let data_key = cfg.data_key.clone().unwrap_or_else(|| {
-            let mut key = vec![0u8; 32];
-            use rand::RngCore;
-            rand::thread_rng().fill_bytes(&mut key);
-            key
-        });
-        cfg.data_key = Some(data_key.clone());
+        let mut data_key = vec![0u8; 32];
+        use rand::RngCore;
+        rand::thread_rng().fill_bytes(&mut data_key);
 
         manager
             .initialize_silo(

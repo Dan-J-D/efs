@@ -116,7 +116,6 @@ async fn main() -> Result<()> {
             use rand::RngCore;
             rand::thread_rng().fill_bytes(&mut data_key);
 
-            cfg.data_key = Some(data_key.clone());
             cfg.chunk_size = *chunk_size;
             config::save_config(&cli.config, &cfg, password.as_bytes())?;
 
@@ -181,15 +180,10 @@ async fn main() -> Result<()> {
                 .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
                 .await?;
 
-            let data_key = cfg
-                .data_key
-                .clone()
-                .ok_or_else(|| anyhow!("Data key not found in config. Run init first."))?;
-
             let mut efs = Efs::new(
                 storage,
                 Arc::new(StandardCipher),
-                data_key,
+                silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )?;
             let data = std::fs::read(local_path)?;
@@ -212,15 +206,10 @@ async fn main() -> Result<()> {
                 .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
                 .await?;
 
-            let data_key = cfg
-                .data_key
-                .clone()
-                .ok_or_else(|| anyhow!("Data key not found in config. Run init first."))?;
-
             let efs = Efs::new(
                 storage,
                 Arc::new(StandardCipher),
-                data_key,
+                silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )?;
             let data = efs.get(remote_path).await?;
@@ -239,15 +228,10 @@ async fn main() -> Result<()> {
                 .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
                 .await?;
 
-            let data_key = cfg
-                .data_key
-                .clone()
-                .ok_or_else(|| anyhow!("Data key not found in config. Run init first."))?;
-
             let efs = Efs::new(
                 storage,
                 Arc::new(StandardCipher),
-                data_key,
+                silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )?;
             for path in efs.index.list().await? {
@@ -270,15 +254,10 @@ async fn main() -> Result<()> {
                 .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
                 .await?;
 
-            let data_key = cfg
-                .data_key
-                .clone()
-                .ok_or_else(|| anyhow!("Data key not found in config. Run init first."))?;
-
             let mut efs = Efs::new(
                 storage,
                 Arc::new(StandardCipher),
-                data_key,
+                silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )?;
 

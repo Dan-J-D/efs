@@ -240,7 +240,10 @@ impl EfsIndex for BtreeIndex {
         // monotonically in the global space but used per region,
         // we can iterate up to the current next_id and try to delete each block name
         // that would belong to this region.
-        let next_id = self.storage.next_id().load(std::sync::atomic::Ordering::SeqCst);
+        let next_id = self
+            .storage
+            .next_id()
+            .load(std::sync::atomic::Ordering::SeqCst);
         let mut storage = self.storage.with_region(current_region);
 
         for id in 0..next_id {
