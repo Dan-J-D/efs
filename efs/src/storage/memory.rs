@@ -1,61 +1,67 @@
 use super::StorageBackend;
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use object_store::{path::Path, ObjectStore};
+use futures::StreamExt;
+use object_store::{memory::InMemory, ObjectStore};
 use std::sync::Arc;
 
-pub struct S3Backend {
+pub struct MemoryBackend {
     store: Arc<dyn ObjectStore>,
 }
 
-impl S3Backend {
-    pub fn new(store: Arc<dyn ObjectStore>) -> Self {
-        Self { store }
+impl MemoryBackend {
+    pub fn new() -> Self {
+        Self {
+            store: Arc::new(InMemory::new()),
+        }
+    }
+}
+
+impl Default for MemoryBackend {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[async_trait]
-impl StorageBackend for S3Backend {
+impl StorageBackend for MemoryBackend {
     async fn put(&self, name: &str, data: Vec<u8>) -> Result<()> {
-        let path = Path::from(name);
+        let path = object_store::path::Path::from(name);
         self.store
             .put(&path, data.into())
             .await
-            .context("Failed to put object in S3")?;
+            .map_err(|e| anyhow!("Memory put error: {}", e))?;
         Ok(())
     }
 
     async fn get(&self, name: &str) -> Result<Vec<u8>> {
-        let path = Path::from(name);
+        let path = object_store::path::Path::from(name);
         let result = self
             .store
             .get(&path)
             .await
-            .context("Failed to get object from S3")?;
-
+            .map_err(|e| anyhow!("Memory get error: {}", e))?;
         let bytes = result
             .bytes()
             .await
-            .context("Failed to read bytes from S3 object")?;
-
+            .map_err(|e| anyhow!("Memory collect error: {}", e))?;
         Ok(bytes.to_vec())
     }
 
     async fn delete(&self, name: &str) -> Result<()> {
-        let path = Path::from(name);
+        let path = object_store::path::Path::from(name);
         self.store
             .delete(&path)
             .await
-            .context("Failed to delete object from S3")?;
+            .map_err(|e| anyhow!("Memory delete error: {}", e))?;
         Ok(())
     }
 
     async fn list(&self) -> Result<Vec<String>> {
-        use futures::StreamExt;
         let mut stream = self.store.list(None);
         let mut keys = Vec::new();
         while let Some(meta) = stream.next().await {
-            let meta = meta.context("Failed to list objects in S3")?;
+            let meta = meta.map_err(|e| anyhow!("Memory list error: {}", e))?;
             keys.push(meta.location.to_string());
         }
         Ok(keys)

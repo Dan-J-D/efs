@@ -1,12 +1,11 @@
 use crate::chunk::{Chunker, UniformEnvelope};
 use crate::crypto::{Cipher, Hasher, Kdf};
 use crate::storage::StorageBackend;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SiloConfig {
-    pub algorithm: String,
     pub chunk_size: usize,
     pub root_node_id: u64,
     pub data_key: Vec<u8>,
@@ -32,7 +31,9 @@ impl SiloManager {
     pub fn derive_root_key(&self, password: &[u8], silo_id: &str) -> Result<Vec<u8>> {
         let mut root_key = vec![0u8; 32];
         let salt = self.hasher.hash(silo_id.as_bytes());
-        self.kdf.derive(password, &salt, &mut root_key)?;
+        self.kdf
+            .derive(password, &salt, &mut root_key)
+            .context("Failed to derive root key")?;
         Ok(root_key)
     }
 
@@ -49,25 +50,34 @@ impl SiloManager {
         chunk_size: usize,
         data_key: Vec<u8>,
     ) -> Result<()> {
-        let root_key = self.derive_root_key(password, silo_id)?;
+        let root_key = self
+            .derive_root_key(password, silo_id)
+            .context("Failed to derive root key for initialization")?;
         let root_name = self.derive_root_chunk_name(&root_key);
 
         let config = SiloConfig {
-            algorithm: "AES-256-GCM".to_string(),
             chunk_size,
             root_node_id: 1,
             data_key,
         };
 
-        let config_bytes = bincode::serialize(&config)?;
+        let config_bytes = bincode::serialize(&config).context("Failed to serialize silo config")?;
         let payload_size = UniformEnvelope::payload_size(chunk_size);
         let padded_config = Chunker::pad(config_bytes, payload_size);
 
-        let (ciphertext, nonce, tag) = self.cipher.encrypt(&root_key, b"root", &padded_config)?;
+        let (ciphertext, nonce, tag) = self
+            .cipher
+            .encrypt(&root_key, b"root", &padded_config)
+            .context("Failed to encrypt silo config")?;
         let envelope = UniformEnvelope::new(nonce, tag, ciphertext);
-        let envelope_bytes = envelope.serialize(chunk_size)?;
+        let envelope_bytes = envelope
+            .serialize(chunk_size)
+            .context("Failed to serialize uniform envelope for silo config")?;
 
-        storage.put(&root_name, envelope_bytes).await?;
+        storage
+            .put(&root_name, envelope_bytes)
+            .await
+            .context("Failed to store silo config")?;
 
         Ok(())
     }
@@ -78,17 +88,31 @@ impl SiloManager {
         password: &[u8],
         silo_id: &str,
     ) -> Result<SiloConfig> {
-        let root_key = self.derive_root_key(password, silo_id)?;
+        let root_key = self
+            .derive_root_key(password, silo_id)
+            .context("Failed to derive root key for loading")?;
         let root_name = self.derive_root_chunk_name(&root_key);
 
-        let envelope_bytes = storage.get(&root_name).await?;
-        let envelope = UniformEnvelope::deserialize(&envelope_bytes)?;
+        let envelope_bytes = storage
+            .get(&root_name)
+            .await
+            .context("Failed to retrieve silo config from storage")?;
+        let envelope = UniformEnvelope::deserialize(&envelope_bytes)
+            .context("Failed to deserialize uniform envelope for silo config")?;
 
         let plaintext = self
             .cipher
-            .decrypt(&root_key, b"root", &envelope.nonce, &envelope.tag, &envelope.ciphertext)?;
+            .decrypt(
+                &root_key,
+                b"root",
+                &envelope.nonce,
+                &envelope.tag,
+                &envelope.ciphertext,
+            )
+            .context("Failed to decrypt silo config")?;
 
-        let config: SiloConfig = bincode::deserialize(&plaintext)?;
+        let config: SiloConfig =
+            bincode::deserialize(&plaintext).context("Failed to deserialize silo config")?;
         Ok(config)
     }
 }

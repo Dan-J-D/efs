@@ -57,7 +57,7 @@ The project is a Rust workspace consisting of the `efs` library and `efs-cli`.
 ### Trait-First Design
 The library decouples logic via traits in `efs/src/lib.rs`. Always implement against traits (`Cipher`, `Hasher`, `Kdf`, `StorageBackend`, `EfsIndex`) to allow for mocking and future-proofing.
 
-### The Uniform Envelope
+### The Uniform Envelope & AAD
 Data uniformity is critical for deniability.
 - Every chunk must be padded to exactly the configured chunk size (default 1MB).
 - Use `UniformEnvelope` for serialization:
@@ -69,6 +69,19 @@ Data uniformity is critical for deniability.
       pub ciphertext: Vec<u8>,
   }
   ```
+- **AAD (Associated Authenticated Data):** Always use deterministic metadata (e.g., `RegionId` and `BlockId`) as AAD when encrypting chunks. This prevents "block swapping" attacks.
+
+### Deterministic Naming & Regions
+To maintain deniability, chunk names in the storage backend must be deterministic but appear random:
+- Use `blake3(key || region_id || block_id)` for chunk names.
+- `RegionId` separates different types of data (e.g., `METADATA`, `FILE_DATA`, `BTREE_INDEX`).
+- `EfsBlockStorage` manages the mapping between logical blocks and physical storage names.
+
+### Silo Management
+`SiloManager` handles high-level operations:
+- Key derivation from passwords using `Kdf`.
+- Initialization and loading of "Silos" (logical encrypted volumes).
+- Root chunk name derivation: `hex(hasher.hash(root_key))`.
 
 ### Storage Backends
 - Backends must implement `StorageBackend`.

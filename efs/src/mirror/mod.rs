@@ -1,7 +1,7 @@
-use anyhow::{Result, anyhow};
+use crate::storage::StorageBackend;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::future::join_all;
-use crate::storage::StorageBackend;
 
 pub struct MirrorOrchestrator {
     backends: Vec<Box<dyn StorageBackend>>,
@@ -20,14 +20,22 @@ impl MirrorOrchestrator {
 #[async_trait]
 impl StorageBackend for MirrorOrchestrator {
     async fn put(&self, name: &str, data: Vec<u8>) -> Result<()> {
-        let futures: Vec<_> = self.backends.iter().map(|b| b.put(name, data.clone())).collect();
+        let futures: Vec<_> = self
+            .backends
+            .iter()
+            .map(|b| b.put(name, data.clone()))
+            .collect();
         let results: Vec<Result<()>> = join_all(futures).await;
-        
+
         let success_count = results.iter().filter(|r| r.is_ok()).count();
         if success_count >= self.majority() {
             Ok(())
         } else {
-            Err(anyhow!("Failed to reach majority consensus on write ({} successes out of {})", success_count, self.backends.len()))
+            Err(anyhow!(
+                "Failed to reach majority consensus on write ({} successes out of {})",
+                success_count,
+                self.backends.len()
+            ))
         }
     }
 
@@ -44,12 +52,16 @@ impl StorageBackend for MirrorOrchestrator {
     async fn delete(&self, name: &str) -> Result<()> {
         let futures: Vec<_> = self.backends.iter().map(|b| b.delete(name)).collect();
         let results: Vec<Result<()>> = join_all(futures).await;
-        
+
         let success_count = results.iter().filter(|r| r.is_ok()).count();
         if success_count >= self.majority() {
             Ok(())
         } else {
-            Err(anyhow!("Failed to reach majority consensus on delete ({} successes out of {})", success_count, self.backends.len()))
+            Err(anyhow!(
+                "Failed to reach majority consensus on delete ({} successes out of {})",
+                success_count,
+                self.backends.len()
+            ))
         }
     }
 

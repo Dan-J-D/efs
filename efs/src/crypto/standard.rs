@@ -24,9 +24,15 @@ impl Cipher for StandardCipher {
         thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
+        // Hash AD with key to prevent metadata leaks in AEAD implementation or side channels
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(key);
+        hasher.update(ad);
+        let hashed_ad = hasher.finalize();
+
         let payload = Payload {
             msg: plaintext,
-            aad: ad,
+            aad: hashed_ad.as_bytes(),
         };
 
         let ciphertext = cipher
@@ -56,12 +62,18 @@ impl Cipher for StandardCipher {
 
         let nonce = Nonce::from_slice(nonce);
 
+        // Re-hash AD with key
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(key);
+        hasher.update(ad);
+        let hashed_ad = hasher.finalize();
+
         let mut full_ciphertext = ciphertext.to_vec();
         full_ciphertext.extend_from_slice(tag);
 
         let payload = Payload {
             msg: &full_ciphertext,
-            aad: ad,
+            aad: hashed_ad.as_bytes(),
         };
 
         cipher

@@ -309,8 +309,9 @@ async fn main() -> Result<()> {
                     if let Some(backends) = obj.get_mut("backends").and_then(|b| b.as_array_mut()) {
                         for backend in backends {
                             if let Some(b_obj) = backend.as_object_mut() {
-                                if let Some(b_type) =
-                                    b_obj.get_mut("backend_type").and_then(|t| t.as_object_mut())
+                                if let Some(b_type) = b_obj
+                                    .get_mut("backend_type")
+                                    .and_then(|t| t.as_object_mut())
                                 {
                                     if let Some(s3) =
                                         b_type.get_mut("S3").and_then(|s| s.as_object_mut())

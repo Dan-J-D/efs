@@ -1,8 +1,8 @@
-use anyhow::{Result, anyhow};
+use crate::storage::StorageBackend;
+use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
-use crate::storage::StorageBackend;
 
 pub struct SessionLock {
     backend: Arc<dyn StorageBackend>,
@@ -18,22 +18,21 @@ impl SessionLock {
     }
 
     pub async fn acquire(&self) -> Result<()> {
-        match self.backend.get(&self.lock_key).await {
-            Ok(data) => {
-                let timestamp = String::from_utf8(data)?.parse::<u64>()?;
-                let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-                if now - timestamp < 60 {
-                    return Err(anyhow!("Silo is locked by another session"));
-                }
+        if let Ok(data) = self.backend.get(&self.lock_key).await {
+            let timestamp = String::from_utf8(data)?.parse::<u64>()?;
+            let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+            if now - timestamp < 60 {
+                return Err(anyhow!("Silo is locked by another session"));
             }
-            Err(_) => {} // No lock exists
         }
         self.refresh().await
     }
 
     pub async fn refresh(&self) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        self.backend.put(&self.lock_key, now.to_string().into_bytes()).await
+        self.backend
+            .put(&self.lock_key, now.to_string().into_bytes())
+            .await
     }
 
     pub async fn start_heartbeat(self: Arc<Self>) {
