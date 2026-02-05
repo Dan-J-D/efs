@@ -7,7 +7,7 @@ pub mod silo;
 pub mod storage;
 
 pub use crate::chunk::{Chunker, UniformEnvelope, DEFAULT_CHUNK_SIZE};
-pub use crate::crypto::{Cipher, Hasher, Kdf};
+pub use crate::crypto::{Cipher, Hasher, Kdf, Key32};
 pub use crate::mirror::MirrorOrchestrator;
 pub use crate::silo::{SiloConfig, SiloManager};
 pub use crate::storage::block::EfsBlockStorage;
@@ -18,6 +18,7 @@ use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use getset::{Getters, Setters};
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -79,7 +80,8 @@ where
     pub storage_adapter: EfsBlockStorage,
     pub storage: Arc<dyn StorageBackend>,
     pub cipher: Arc<dyn Cipher>,
-    pub key: Vec<u8>,
+    pub hasher: Arc<dyn Hasher>,
+    pub key: SecretBox<Key32>,
     pub chunk_size: usize,
     _phantom: PhantomData<(K, V)>,
 }
@@ -91,7 +93,9 @@ pub struct EfsBuilder<K: 'static = String, V: 'static = EfsEntry, I = Arc<dyn Ef
     #[getset(get = "pub", set = "pub")]
     cipher: Arc<dyn Cipher>,
     #[getset(get = "pub", set = "pub")]
-    key: Vec<u8>,
+    hasher: Arc<dyn Hasher>,
+    #[getset(get = "pub", set = "pub")]
+    key: SecretBox<Key32>,
     #[getset(get = "pub", set = "pub")]
     chunk_size: usize,
     #[getset(get = "pub", set = "pub")]
@@ -103,8 +107,9 @@ impl Default for EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>
     fn default() -> Self {
         Self {
             storage: Arc::new(crate::storage::memory::MemoryBackend::new()),
-            cipher: Arc::new(crate::crypto::Aes256GcmCipher),
-            key: vec![0u8; 32],
+            cipher: Arc::new(crate::crypto::Aes256GcmCipher::default()),
+            hasher: Arc::new(crate::crypto::Blake3Hasher::default()),
+            key: SecretBox::new(Box::new(Key32([0u8; 32]))),
             chunk_size: DEFAULT_CHUNK_SIZE,
             index: None,
             _phantom: PhantomData,
@@ -135,7 +140,12 @@ where
         self
     }
 
-    pub fn with_key(mut self, key: Vec<u8>) -> Self {
+    pub fn with_hasher(mut self, hasher: Arc<dyn Hasher>) -> Self {
+        self.hasher = hasher;
+        self
+    }
+
+    pub fn with_key(mut self, key: SecretBox<Key32>) -> Self {
         self.key = key;
         self
     }
@@ -157,6 +167,7 @@ where
         EfsBuilder {
             storage: self.storage,
             cipher: self.cipher,
+            hasher: self.hasher,
             key: self.key,
             chunk_size: self.chunk_size,
             index: Some(index),
@@ -168,6 +179,7 @@ where
         let storage_adapter = EfsBlockStorage::new(
             self.storage.clone(),
             self.cipher.clone(),
+            self.hasher.clone(),
             self.key.clone(),
             self.chunk_size,
         );
@@ -190,6 +202,7 @@ where
             storage_adapter,
             storage: self.storage,
             cipher: self.cipher,
+            hasher: self.hasher,
             key: self.key,
             chunk_size: self.chunk_size,
             _phantom: PhantomData,
@@ -202,6 +215,7 @@ impl EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
         let storage_adapter = EfsBlockStorage::new(
             self.storage.clone(),
             self.cipher.clone(),
+            self.hasher.clone(),
             self.key.clone(),
             self.chunk_size,
         );
@@ -223,6 +237,7 @@ impl EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
             let cached_adapter = EfsBlockStorage::new_with_shared_state(
                 cached_storage,
                 self.cipher.clone(),
+                self.hasher.clone(),
                 self.key.clone(),
                 self.chunk_size,
                 storage_adapter.next_id(),
@@ -244,6 +259,7 @@ impl EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
             storage_adapter,
             storage: self.storage,
             cipher: self.cipher,
+            hasher: self.hasher,
             key: self.key,
             chunk_size: self.chunk_size,
             _phantom: PhantomData,
@@ -259,12 +275,14 @@ impl Efs<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
     pub async fn new(
         storage: Arc<dyn StorageBackend>,
         cipher: Arc<dyn Cipher>,
-        key: Vec<u8>,
+        hasher: Arc<dyn Hasher>,
+        key: SecretBox<Key32>,
         chunk_size: usize,
     ) -> Result<Self> {
         Self::builder()
             .with_storage(storage)
             .with_cipher(cipher)
+            .with_hasher(hasher)
             .with_key(key)
             .with_chunk_size(chunk_size)
             .build()
@@ -359,7 +377,7 @@ where
                 ad.extend_from_slice(&id.to_le_bytes());
 
                 let (ciphertext, nonce, tag) = cipher
-                    .encrypt(&key, &ad, &padded)
+                    .encrypt(key.expose_secret().as_ref(), &ad, &padded)
                     .context("Encryption failed")?;
 
                 let envelope = UniformEnvelope::new(nonce, tag, ciphertext);
@@ -504,7 +522,7 @@ where
 
                 let plaintext = cipher
                     .decrypt(
-                        &key,
+                        key.expose_secret().as_ref(),
                         &ad,
                         &envelope.nonce,
                         &envelope.tag,

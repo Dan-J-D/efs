@@ -19,6 +19,7 @@ aes-gcm = "0.10"
 rand = "0.8"
 rpassword = "7.3"
 object_store = { version = "0.11", features = ["aws"] }
+secrecy = { version = "0.10.3", features = ["serde"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"

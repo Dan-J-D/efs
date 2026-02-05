@@ -8,6 +8,8 @@ use bptree::storage::BlockStorage;
 use bptree::BPTree;
 use serde::{Deserialize, Serialize};
 
+use secrecy::ExposeSecret;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum IndexEntry {
     File {
@@ -33,12 +35,15 @@ impl BtreeIndex {
     }
 
     fn derive_salt(&self, parent_salt: &[u8; 32], name: &str) -> [u8; 32] {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&self.storage.key);
-        hasher.update(parent_salt);
-        hasher.update(name.as_bytes());
+        let mut data = Vec::new();
+        data.extend_from_slice(self.storage.key.expose_secret().as_ref());
+        data.extend_from_slice(parent_salt);
+        data.extend_from_slice(name.as_bytes());
+        let hash = self.storage.hasher.hash(&data);
+        
         let mut salt = [0u8; 32];
-        salt.copy_from_slice(hasher.finalize().as_bytes());
+        let len = hash.len().min(32);
+        salt[..len].copy_from_slice(&hash[..len]);
         salt
     }
 

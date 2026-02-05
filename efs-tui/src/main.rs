@@ -11,6 +11,7 @@ use efs::silo::SiloManager;
 use efs::storage::local::LocalBackend;
 use efs::storage::s3::S3Backend;
 use efs::{Efs, StorageBackend};
+use secrecy::{ExposeSecret, SecretBox, SecretString};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
@@ -86,7 +87,7 @@ enum FileItem {
 struct App {
     state: AppState,
     config_path: String,
-    password: String,
+    password: SecretString,
     config: Option<Config>,
     files: Vec<String>,
     current_dir: String,
@@ -102,7 +103,7 @@ impl App {
         Self {
             state: AppState::Login,
             config_path,
-            password: String::new(),
+            password: SecretString::from(""),
             config: None,
             files: Vec::new(),
             current_dir: "/".to_string(),
@@ -115,7 +116,7 @@ impl App {
     }
 
     async fn login(&mut self) -> Result<()> {
-        let cfg = config::load_config(&self.config_path, self.password.as_bytes())?;
+        let cfg = config::load_config(&self.config_path, self.password.expose_secret().as_bytes())?;
         self.config = Some(cfg.clone());
 
         if let Some(first_silo) = cfg.known_silos.first() {
@@ -146,19 +147,20 @@ impl App {
 
         let storage = get_storage(cfg).await?;
         let manager = SiloManager::new(
-            Box::new(Argon2Kdf),
-            Box::new(Aes256GcmCipher),
-            Box::new(Blake3Hasher),
+            Box::new(Argon2Kdf::default()),
+            Box::new(Aes256GcmCipher::default()),
+            Box::new(Blake3Hasher::default()),
         );
 
         let silo_cfg = manager
-            .load_silo(storage.as_ref(), self.password.as_bytes(), &self.silo_id)
+            .load_silo(storage.as_ref(), &self.password, &self.silo_id)
             .await?;
 
         let efs = Efs::new(
             storage,
-            Arc::new(Aes256GcmCipher),
-            silo_cfg.data_key,
+            Arc::new(Aes256GcmCipher::default()),
+            Arc::new(Blake3Hasher::default()),
+            silo_cfg.data_key.clone(),
             silo_cfg.chunk_size,
         )
         .await?;
@@ -177,7 +179,7 @@ impl App {
 
     fn save_config(&self) -> Result<()> {
         if let Some(cfg) = &self.config {
-            config::save_config(&self.config_path, cfg, self.password.as_bytes())?;
+            config::save_config(&self.config_path, cfg, self.password.expose_secret().as_bytes())?;
         }
         Ok(())
     }
@@ -202,19 +204,20 @@ impl App {
             .ok_or_else(|| anyhow!("Config not loaded"))?;
         let storage = get_storage(cfg).await?;
         let manager = SiloManager::new(
-            Box::new(Argon2Kdf),
-            Box::new(Aes256GcmCipher),
-            Box::new(Blake3Hasher),
+            Box::new(Argon2Kdf::default()),
+            Box::new(Aes256GcmCipher::default()),
+            Box::new(Blake3Hasher::default()),
         );
 
-        let mut data_key = vec![0u8; 32];
+        let mut data_key_bytes = [0u8; 32];
         use rand::RngCore;
-        rand::thread_rng().fill_bytes(&mut data_key);
+        rand::thread_rng().fill_bytes(&mut data_key_bytes);
+        let data_key = SecretBox::new(Box::new(efs::Key32(data_key_bytes)));
 
         manager
             .initialize_silo(
                 storage.as_ref(),
-                self.password.as_bytes(),
+                &self.password,
                 silo_id,
                 cfg.chunk_size,
                 data_key,
@@ -389,10 +392,14 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                             }
                         }
                         KeyCode::Char(c) => {
-                            app.password.push(c);
+                            let mut p: String = app.password.expose_secret().into();
+                            p.push(c);
+                            app.password = SecretString::from(p);
                         }
                         KeyCode::Backspace => {
-                            app.password.pop();
+                            let mut p: String = app.password.expose_secret().into();
+                            p.pop();
+                            app.password = SecretString::from(p);
                         }
                         KeyCode::Esc => return Ok(()),
                         _ => {}
@@ -908,7 +915,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 Paragraph::new("EFS TUI - Login").block(Block::default().borders(Borders::ALL));
             f.render_widget(title, chunks[0]);
 
-            let password_display = "*".repeat(app.password.len());
+            let password_display = "*".repeat(app.password.expose_secret().chars().count());
             let password_input = Paragraph::new(password_display)
                 .block(Block::default().borders(Borders::ALL).title("Password"));
             f.render_widget(password_input, chunks[1]);

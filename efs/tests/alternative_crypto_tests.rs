@@ -7,8 +7,8 @@ use efs::crypto::{Cipher, Hasher, Kdf};
 #[test]
 fn test_chacha20_flow() {
     let ciphers: Vec<Box<dyn Cipher>> = vec![
-        Box::new(ChaCha20Poly1305Cipher),
-        Box::new(XChaCha20Poly1305Cipher),
+        Box::new(ChaCha20Poly1305Cipher::default()),
+        Box::new(XChaCha20Poly1305Cipher::default()),
     ];
 
     for cipher in ciphers {
@@ -28,7 +28,7 @@ fn test_chacha20_flow() {
 
 #[test]
 fn test_pbkdf2() {
-    let kdf = Pbkdf2Sha256Kdf;
+    let kdf = Pbkdf2Sha256Kdf::default();
     let mut output1 = [0u8; 32];
     let mut output2 = [0u8; 32];
     let salt = b"salt";
@@ -45,10 +45,10 @@ fn test_pbkdf2() {
 #[test]
 fn test_hashers() {
     let hashers: Vec<Box<dyn Hasher>> = vec![
-        Box::new(Sha3_256Hasher),
-        Box::new(Sha256Hasher),
-        Box::new(Sha512Hasher),
-        Box::new(Blake2b512Hasher),
+        Box::new(Sha3_256Hasher::default()),
+        Box::new(Sha256Hasher::default()),
+        Box::new(Sha512Hasher::default()),
+        Box::new(Blake2b512Hasher::default()),
     ];
 
     for hasher in hashers {

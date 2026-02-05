@@ -6,11 +6,12 @@ use std::sync::Arc;
 #[tokio::test(flavor = "multi_thread")]
 async fn test_recursive_delete() {
     let backend = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(Aes256GcmCipher);
-    let key = vec![0u8; 32];
+    let cipher = Arc::new(Aes256GcmCipher::default());
+    let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = 1024; // Small chunk size for testing
 
-    let efs = Efs::new(backend.clone(), cipher, key, chunk_size)
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
+    let efs = Efs::new(backend.clone(), cipher, hasher, key, chunk_size)
         .await
         .unwrap();
 

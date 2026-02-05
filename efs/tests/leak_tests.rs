@@ -6,11 +6,12 @@ use std::sync::Arc;
 #[tokio::test(flavor = "multi_thread")]
 async fn test_directory_deletion_leak() {
     let backend = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(Aes256GcmCipher);
-    let key = vec![0u8; 32];
+    let cipher = Arc::new(Aes256GcmCipher::default());
+    let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = 4096; // Larger chunk size to avoid free list overflow
 
-    let efs = Efs::new(backend.clone(), cipher.clone(), key.clone(), chunk_size)
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
+    let efs = Efs::new(backend.clone(), cipher.clone(), hasher, key.clone(), chunk_size)
         .await
         .unwrap();
 

@@ -20,3 +20,4 @@ rpassword = "7.3"
 rand = "0.8"
 object_store = { version = "0.11", features = ["aws"] }
 bincode = "1.3"
+secrecy = { version = "0.10.3", features = ["serde"] }

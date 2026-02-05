@@ -1,11 +1,12 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use efs::crypto::{Aes256GcmCipher, Blake3Hasher, Argon2Kdf};
+use efs::crypto::{Aes256GcmCipher, Argon2Kdf, Blake3Hasher};
 use efs::mirror::MirrorOrchestrator;
 use efs::silo::SiloManager;
 use efs::storage::local::LocalBackend;
 use efs::storage::s3::S3Backend;
 use efs::{Efs, StorageBackend};
+use secrecy::{ExposeSecret, SecretBox, SecretString};
 use std::sync::Arc;
 
 mod config;
@@ -113,8 +114,8 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let password = get_password()?;
-    let mut cfg = config::load_config(&cli.config, password.as_bytes())?;
+    let password = SecretString::from(get_password()?);
+    let mut cfg = config::load_config(&cli.config, password.expose_secret().as_bytes())?;
 
     match &cli.command {
         Commands::Init {
@@ -123,24 +124,26 @@ async fn main() -> Result<()> {
         } => {
             println!("Initializing silo: {}", silo_id);
 
-            let mut data_key = vec![0u8; 32];
+            let mut data_key_bytes = [0u8; 32];
             use rand::RngCore;
-            rand::thread_rng().fill_bytes(&mut data_key);
+            rand::thread_rng().fill_bytes(&mut data_key_bytes);
+            let data_key = SecretBox::new(Box::new(efs::Key32(data_key_bytes)));
 
             cfg.chunk_size = *chunk_size;
-            config::save_config(&cli.config, &cfg, password.as_bytes())?;
+            config::save_config(&cli.config, &cfg, password.expose_secret().as_bytes())?;
+
 
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(Argon2Kdf),
-                Box::new(Aes256GcmCipher),
-                Box::new(Blake3Hasher),
+                Box::new(Argon2Kdf::default()),
+                Box::new(Aes256GcmCipher::default()),
+                Box::new(Blake3Hasher::default()),
             );
 
             manager
                 .initialize_silo(
                     storage.as_ref(),
-                    password.as_bytes(),
+                    &password,
                     silo_id,
                     cfg.chunk_size,
                     data_key,
@@ -164,7 +167,7 @@ async fn main() -> Result<()> {
                     secret_key: secret_key.clone(),
                 },
             });
-            config::save_config(&cli.config, &cfg, password.as_bytes())?;
+            config::save_config(&cli.config, &cfg, password.expose_secret().as_bytes())?;
             println!("S3 backend '{}' added.", name);
         }
         Commands::AddLocal { name, path } => {
@@ -172,7 +175,7 @@ async fn main() -> Result<()> {
                 name: name.clone(),
                 backend_type: BackendType::Local { path: path.clone() },
             });
-            config::save_config(&cli.config, &cfg, password.as_bytes())?;
+            config::save_config(&cli.config, &cfg, password.expose_secret().as_bytes())?;
             println!("Local backend '{}' added at {}.", name, path);
         }
         Commands::Put {
@@ -182,19 +185,20 @@ async fn main() -> Result<()> {
         } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(Argon2Kdf),
-                Box::new(Aes256GcmCipher),
-                Box::new(Blake3Hasher),
+                Box::new(Argon2Kdf::default()),
+                Box::new(Aes256GcmCipher::default()),
+                Box::new(Blake3Hasher::default()),
             );
 
             let silo_cfg = manager
-                .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
+                .load_silo(storage.as_ref(), &password, silo_id)
                 .await?;
 
             let efs = Efs::new(
                 storage,
-                Arc::new(Aes256GcmCipher),
-                silo_cfg.data_key,
+                Arc::new(Aes256GcmCipher::default()),
+                Arc::new(Blake3Hasher::default()),
+                silo_cfg.data_key.clone(),
                 silo_cfg.chunk_size,
             )
             .await?;
@@ -209,19 +213,20 @@ async fn main() -> Result<()> {
         } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(Argon2Kdf),
-                Box::new(Aes256GcmCipher),
-                Box::new(Blake3Hasher),
+                Box::new(Argon2Kdf::default()),
+                Box::new(Aes256GcmCipher::default()),
+                Box::new(Blake3Hasher::default()),
             );
 
             let silo_cfg = manager
-                .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
+                .load_silo(storage.as_ref(), &password, silo_id)
                 .await?;
 
             let efs = Efs::new(
                 storage,
-                Arc::new(Aes256GcmCipher),
-                silo_cfg.data_key,
+                Arc::new(Aes256GcmCipher::default()),
+                Arc::new(Blake3Hasher::default()),
+                silo_cfg.data_key.clone(),
                 silo_cfg.chunk_size,
             )
             .await?;
@@ -232,19 +237,20 @@ async fn main() -> Result<()> {
         Commands::Ls { silo_id } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(Argon2Kdf),
-                Box::new(Aes256GcmCipher),
-                Box::new(Blake3Hasher),
+                Box::new(Argon2Kdf::default()),
+                Box::new(Aes256GcmCipher::default()),
+                Box::new(Blake3Hasher::default()),
             );
 
             let silo_cfg = manager
-                .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
+                .load_silo(storage.as_ref(), &password, silo_id)
                 .await?;
 
             let efs = Efs::new(
                 storage,
-                Arc::new(Aes256GcmCipher),
-                silo_cfg.data_key,
+                Arc::new(Aes256GcmCipher::default()),
+                Arc::new(Blake3Hasher::default()),
+                silo_cfg.data_key.clone(),
                 silo_cfg.chunk_size,
             )
             .await?;
@@ -259,19 +265,20 @@ async fn main() -> Result<()> {
         } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(Argon2Kdf),
-                Box::new(Aes256GcmCipher),
-                Box::new(Blake3Hasher),
+                Box::new(Argon2Kdf::default()),
+                Box::new(Aes256GcmCipher::default()),
+                Box::new(Blake3Hasher::default()),
             );
 
             let silo_cfg = manager
-                .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
+                .load_silo(storage.as_ref(), &password, silo_id)
                 .await?;
 
             let efs = Efs::new(
                 storage,
-                Arc::new(Aes256GcmCipher),
-                silo_cfg.data_key,
+                Arc::new(Aes256GcmCipher::default()),
+                Arc::new(Blake3Hasher::default()),
+                silo_cfg.data_key.clone(),
                 silo_cfg.chunk_size,
             )
             .await?;
@@ -290,19 +297,20 @@ async fn main() -> Result<()> {
         } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(Argon2Kdf),
-                Box::new(Aes256GcmCipher),
-                Box::new(Blake3Hasher),
+                Box::new(Argon2Kdf::default()),
+                Box::new(Aes256GcmCipher::default()),
+                Box::new(Blake3Hasher::default()),
             );
 
             let silo_cfg = manager
-                .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
+                .load_silo(storage.as_ref(), &password, silo_id)
                 .await?;
 
             let efs = Efs::new(
                 storage,
-                Arc::new(Aes256GcmCipher),
-                silo_cfg.data_key,
+                Arc::new(Aes256GcmCipher::default()),
+                Arc::new(Blake3Hasher::default()),
+                silo_cfg.data_key.clone(),
                 silo_cfg.chunk_size,
             )
             .await?;

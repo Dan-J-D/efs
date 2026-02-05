@@ -7,7 +7,8 @@ use anyhow::{anyhow, Result};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaChaNonce, XChaCha20Poly1305, XNonce};
 use rand::{thread_rng, RngCore};
 
-pub struct Aes256GcmCipher;
+#[derive(Default)]
+pub struct Aes256GcmCipher {}
 
 impl Cipher for Aes256GcmCipher {
     fn nonce_size(&self) -> usize {
@@ -31,14 +32,9 @@ impl Cipher for Aes256GcmCipher {
         thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(key);
-        hasher.update(ad);
-        let hashed_ad = hasher.finalize();
-
         let payload = Payload {
             msg: plaintext,
-            aad: hashed_ad.as_bytes(),
+            aad: ad,
         };
 
         let ciphertext = cipher
@@ -65,17 +61,12 @@ impl Cipher for Aes256GcmCipher {
 
         let nonce = Nonce::from_slice(nonce);
 
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(key);
-        hasher.update(ad);
-        let hashed_ad = hasher.finalize();
-
         let mut full_ciphertext = ciphertext.to_vec();
         full_ciphertext.extend_from_slice(tag);
 
         let payload = Payload {
             msg: &full_ciphertext,
-            aad: hashed_ad.as_bytes(),
+            aad: ad,
         };
 
         cipher
@@ -84,7 +75,8 @@ impl Cipher for Aes256GcmCipher {
     }
 }
 
-pub struct ChaCha20Poly1305Cipher;
+#[derive(Default)]
+pub struct ChaCha20Poly1305Cipher {}
 
 impl Cipher for ChaCha20Poly1305Cipher {
     fn nonce_size(&self) -> usize {
@@ -108,14 +100,9 @@ impl Cipher for ChaCha20Poly1305Cipher {
         thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce = ChaChaNonce::from_slice(&nonce_bytes);
 
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(key);
-        hasher.update(ad);
-        let hashed_ad = hasher.finalize();
-
         let payload = Payload {
             msg: plaintext,
-            aad: hashed_ad.as_bytes(),
+            aad: ad,
         };
 
         let ciphertext = cipher
@@ -142,17 +129,12 @@ impl Cipher for ChaCha20Poly1305Cipher {
 
         let nonce = ChaChaNonce::from_slice(nonce);
 
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(key);
-        hasher.update(ad);
-        let hashed_ad = hasher.finalize();
-
         let mut full_ciphertext = ciphertext.to_vec();
         full_ciphertext.extend_from_slice(tag);
 
         let payload = Payload {
             msg: &full_ciphertext,
-            aad: hashed_ad.as_bytes(),
+            aad: ad,
         };
 
         cipher
@@ -161,7 +143,8 @@ impl Cipher for ChaCha20Poly1305Cipher {
     }
 }
 
-pub struct XChaCha20Poly1305Cipher;
+#[derive(Default)]
+pub struct XChaCha20Poly1305Cipher {}
 
 impl Cipher for XChaCha20Poly1305Cipher {
     fn nonce_size(&self) -> usize {
@@ -185,14 +168,9 @@ impl Cipher for XChaCha20Poly1305Cipher {
         thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce = XNonce::from_slice(&nonce_bytes);
 
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(key);
-        hasher.update(ad);
-        let hashed_ad = hasher.finalize();
-
         let payload = Payload {
             msg: plaintext,
-            aad: hashed_ad.as_bytes(),
+            aad: ad,
         };
 
         let ciphertext = cipher
@@ -219,17 +197,12 @@ impl Cipher for XChaCha20Poly1305Cipher {
 
         let nonce = XNonce::from_slice(nonce);
 
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(key);
-        hasher.update(ad);
-        let hashed_ad = hasher.finalize();
-
         let mut full_ciphertext = ciphertext.to_vec();
         full_ciphertext.extend_from_slice(tag);
 
         let payload = Payload {
             msg: &full_ciphertext,
-            aad: hashed_ad.as_bytes(),
+            aad: ad,
         };
 
         cipher

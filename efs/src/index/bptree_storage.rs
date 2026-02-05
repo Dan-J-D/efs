@@ -1,10 +1,11 @@
 use crate::chunk::{Chunker, UniformEnvelope};
-use crate::crypto::Cipher;
+use crate::crypto::{Cipher, Hasher, Key32};
 use crate::storage::{RegionId, StorageBackend, ALLOCATOR_STATE_BLOCK_ID, METADATA_REGION_ID};
 use anyhow::Result;
 use async_trait::async_trait;
 use bptree::storage::{BlockId, BlockStorage, StorageError};
 use futures::future::join_all;
+use secrecy::{ExposeSecret, SecretBox};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -15,7 +16,8 @@ use crate::storage::block::EfsBlockStorage;
 pub struct BPTreeStorage {
     pub backend: Arc<dyn StorageBackend>,
     pub cipher: Arc<dyn Cipher>,
-    pub key: Vec<u8>,
+    pub hasher: Arc<dyn Hasher>,
+    pub key: SecretBox<Key32>,
     pub next_id: Arc<AtomicU64>,
     pub persisted_id: Arc<AtomicU64>,
     pub chunk_size: usize,
@@ -29,22 +31,26 @@ impl BPTreeStorage {
         storage: EfsBlockStorage,
         region_id: RegionId,
     ) -> Self {
+        let mut data = Vec::new();
+        data.extend_from_slice(storage.key.expose_secret().as_ref());
+        data.extend_from_slice(&region_id.to_le_bytes());
+        let hash = storage.hasher.hash(&data);
+        
         let mut context_salt = [0u8; 32];
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&storage.key);
-        hasher.update(&region_id.to_le_bytes());
-        context_salt.copy_from_slice(hasher.finalize().as_bytes());
+        let len = hash.len().min(32);
+        context_salt[..len].copy_from_slice(&hash[..len]);
 
         Self {
-            backend: storage.backend,
-            cipher: storage.cipher,
-            key: storage.key,
-            next_id: storage.next_id,
-            persisted_id: storage.persisted_id,
+            backend: storage.backend.clone(),
+            cipher: storage.cipher.clone(),
+            hasher: storage.hasher.clone(),
+            key: storage.key.clone(),
+            next_id: storage.next_id.clone(),
+            persisted_id: storage.persisted_id.clone(),
             chunk_size: storage.chunk_size,
             region_id,
             context_salt,
-            allocation_lock: storage.allocation_lock,
+            allocation_lock: storage.allocation_lock.clone(),
         }
     }
 
@@ -72,12 +78,12 @@ impl BPTreeStorage {
     }
 
     fn block_name(&self, id: BlockId) -> String {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&self.key);
-        hasher.update(&self.context_salt);
-        hasher.update(&id.to_le_bytes());
-        let hash = hasher.finalize();
-        hex::encode(hash.as_bytes())
+        let mut data = Vec::new();
+        data.extend_from_slice(self.key.expose_secret().as_ref());
+        data.extend_from_slice(&self.context_salt);
+        data.extend_from_slice(&id.to_le_bytes());
+        let hash = self.hasher.hash(&data);
+        hex::encode(hash)
     }
 }
 
@@ -107,7 +113,7 @@ impl BlockStorage for BPTreeStorage {
         let plaintext = self
             .cipher
             .decrypt(
-                &self.key,
+                self.key.expose_secret().as_ref(),
                 &ad,
                 &envelope.nonce,
                 &envelope.tag,
@@ -136,7 +142,7 @@ impl BlockStorage for BPTreeStorage {
 
         let (ciphertext, nonce, tag) = self
             .cipher
-            .encrypt(&self.key, &ad, &padded_data)
+            .encrypt(self.key.expose_secret().as_ref(), &ad, &padded_data)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
 
         let envelope = UniformEnvelope::new(nonce, tag, ciphertext);

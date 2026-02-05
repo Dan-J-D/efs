@@ -8,12 +8,13 @@ use tempfile::tempdir;
 async fn test_next_id_persistence() {
     let tmp = tempdir().unwrap();
     let storage = Arc::new(LocalBackend::new(tmp.path()).unwrap());
-    let cipher = Arc::new(Aes256GcmCipher);
-    let key = vec![0u8; 32];
+    let cipher = Arc::new(Aes256GcmCipher::default());
+    let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = DEFAULT_CHUNK_SIZE;
 
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
     {
-        let efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), chunk_size)
+        let efs = Efs::new(storage.clone(), cipher.clone(), hasher.clone(), key.clone(), chunk_size)
             .await
             .unwrap();
         // Initially next_id should be 10
@@ -35,8 +36,9 @@ async fn test_next_id_persistence() {
     }
 
     // Now create a new Efs instance with the same storage
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
     {
-        let efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), chunk_size)
+        let efs = Efs::new(storage.clone(), cipher.clone(), hasher.clone(), key.clone(), chunk_size)
             .await
             .unwrap();
         let id_after_restart = efs

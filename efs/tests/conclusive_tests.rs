@@ -11,11 +11,12 @@ async fn verify_no_leaks(_efs: &Efs) {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_conclusive_lifecycle() {
     let backend = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(Aes256GcmCipher);
-    let key = vec![0u8; 32];
+    let cipher = Arc::new(Aes256GcmCipher::default());
+    let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = 1024; // Small chunk size to trigger more blocks
 
-    let efs = Efs::new(backend.clone(), cipher.clone(), key.clone(), chunk_size)
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
+    let efs = Efs::new(backend.clone(), cipher.clone(), hasher, key.clone(), chunk_size)
         .await
         .unwrap();
 
@@ -65,11 +66,12 @@ async fn test_conclusive_lifecycle() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_concurrent_puts() {
     let backend = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(Aes256GcmCipher);
-    let key = vec![0u8; 32];
+    let cipher = Arc::new(Aes256GcmCipher::default());
+    let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = 1024;
 
-    let efs = Efs::new(backend.clone(), cipher.clone(), key.clone(), chunk_size)
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
+    let efs = Efs::new(backend.clone(), cipher.clone(), hasher, key.clone(), chunk_size)
         .await
         .unwrap();
     let efs = Arc::new(tokio::sync::Mutex::new(efs));
@@ -125,11 +127,12 @@ impl efs::EfsIndex<String, efs::EfsEntry> for FailingIndex {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cleanup_on_index_failure() {
     let backend = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(Aes256GcmCipher);
-    let key = vec![0u8; 32];
+    let cipher = Arc::new(Aes256GcmCipher::default());
+    let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = 1024;
 
-    let mut efs = Efs::new(backend.clone(), cipher.clone(), key.clone(), chunk_size)
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
+    let mut efs = Efs::new(backend.clone(), cipher.clone(), hasher, key.clone(), chunk_size)
         .await
         .unwrap();
 

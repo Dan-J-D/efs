@@ -32,20 +32,20 @@ impl Hasher for MockHasher {
 async fn test_custom_kdf_hasher() {
     let kdf = Box::new(MockKdf);
     let hasher = Box::new(MockHasher);
-    let cipher = Box::new(Aes256GcmCipher);
+    let cipher = Box::new(Aes256GcmCipher::default());
 
     let silo_manager = SiloManager::new(kdf, cipher, hasher);
     let storage = Arc::new(MemoryBackend::new());
 
-    let password = b"secret";
+    let password = secrecy::SecretString::from("secret");
     let silo_id = "test-silo";
-    let data_key = vec![0x13; 32];
+    let data_key = secrecy::SecretBox::new(Box::new(efs::Key32([0x13; 32])));
 
     // Initialize silo with custom crypto
     silo_manager
         .initialize_silo(
             storage.as_ref(),
-            password,
+            &password,
             silo_id,
             1024 * 1024,
             data_key.clone(),
@@ -55,9 +55,10 @@ async fn test_custom_kdf_hasher() {
 
     // Load it back
     let config = silo_manager
-        .load_silo(storage.as_ref(), password, silo_id)
+        .load_silo(storage.as_ref(), &password, silo_id)
         .await
         .unwrap();
 
-    assert_eq!(config.data_key, data_key);
+    use secrecy::ExposeSecret;
+    assert_eq!(config.data_key.expose_secret().0, data_key.expose_secret().0);
 }

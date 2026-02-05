@@ -10,13 +10,14 @@ async fn test_efs_builder_custom_index() {
     let temp_dir = TempDir::new().unwrap();
     let backend: Arc<dyn efs::storage::StorageBackend> =
         Arc::new(LocalBackend::new(temp_dir.path()).unwrap());
-    let cipher = Arc::new(Aes256GcmCipher);
-    let key = vec![0u8; 32];
+    let cipher = Arc::new(Aes256GcmCipher::default());
+    let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = DEFAULT_CHUNK_SIZE;
 
     // We need to load next_id to properly construct BPTreeStorage for BtreeIndex
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
     let storage_adapter =
-        EfsBlockStorage::new(backend.clone(), cipher.clone(), key.clone(), chunk_size);
+        EfsBlockStorage::new(backend.clone(), cipher.clone(), hasher, key.clone(), chunk_size);
     storage_adapter.load_next_id().await.unwrap();
 
     let btree_storage = BPTreeStorage::new(

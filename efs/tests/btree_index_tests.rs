@@ -11,14 +11,16 @@ async fn test_btree_index_hierarchical() {
     let temp_dir = TempDir::new().unwrap();
     let backend: Arc<dyn efs::storage::StorageBackend> =
         Arc::new(LocalBackend::new(temp_dir.path()).unwrap());
-    let cipher = Arc::new(Aes256GcmCipher);
-    let key = vec![0u8; 32];
+    let cipher = Arc::new(Aes256GcmCipher::default());
+    let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = 1024 * 1024;
     let next_id = Arc::new(AtomicU64::new(10)); // Start from 10 to avoid collisions with reserved blocks
 
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
     let storage_adapter = efs::storage::block::EfsBlockStorage::new_with_shared_state(
         backend.clone(),
         cipher.clone(),
+        hasher.clone(),
         key.clone(),
         chunk_size,
         next_id.clone(),
@@ -226,14 +228,16 @@ async fn test_btree_index_no_implicit_creation() {
     let temp_dir = TempDir::new().unwrap();
     let backend: Arc<dyn efs::storage::StorageBackend> =
         Arc::new(LocalBackend::new(temp_dir.path()).unwrap());
-    let cipher = Arc::new(Aes256GcmCipher);
-    let key = vec![0u8; 32];
+    let cipher = Arc::new(Aes256GcmCipher::default());
+    let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = 1024 * 1024;
     let next_id = Arc::new(AtomicU64::new(10));
 
+    let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
     let storage_adapter = efs::storage::block::EfsBlockStorage::new_with_shared_state(
         backend.clone(),
         cipher.clone(),
+        hasher.clone(),
         key.clone(),
         chunk_size,
         next_id.clone(),

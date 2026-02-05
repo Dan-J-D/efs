@@ -1,4 +1,19 @@
 use anyhow::Result;
+use secrecy::{CloneableSecret, SerializableSecret};
+use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
+
+#[derive(Clone, Serialize, Deserialize, Zeroize)]
+pub struct Key32(pub [u8; 32]);
+
+impl CloneableSecret for Key32 {}
+impl SerializableSecret for Key32 {}
+
+impl AsRef<[u8]> for Key32 {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 pub trait Cipher: Send + Sync {
     fn nonce_size(&self) -> usize;

@@ -1,11 +1,11 @@
 use crate::chunk::{Chunker, UniformEnvelope};
-use crate::crypto::Cipher;
+use crate::crypto::{Cipher, Hasher, Key32};
 use crate::storage::{RegionId, StorageBackend, ALLOCATOR_STATE_BLOCK_ID, METADATA_REGION_ID};
 use anyhow::{Context, Result};
-use blake3;
 use bptree::storage::BlockId;
 use futures::future::join_all;
 use hex;
+use secrecy::{ExposeSecret, SecretBox};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -14,7 +14,8 @@ use tokio::sync::Mutex;
 pub struct EfsBlockStorage {
     pub(crate) backend: Arc<dyn StorageBackend>,
     pub(crate) cipher: Arc<dyn Cipher>,
-    pub(crate) key: Vec<u8>,
+    pub(crate) hasher: Arc<dyn Hasher>,
+    pub(crate) key: SecretBox<Key32>,
     pub(crate) next_id: Arc<AtomicU64>,
     pub(crate) persisted_id: Arc<AtomicU64>,
     pub(crate) chunk_size: usize,
@@ -25,12 +26,14 @@ impl EfsBlockStorage {
     pub fn new(
         backend: Arc<dyn StorageBackend>,
         cipher: Arc<dyn Cipher>,
-        key: Vec<u8>,
+        hasher: Arc<dyn Hasher>,
+        key: SecretBox<Key32>,
         chunk_size: usize,
     ) -> Self {
         Self {
             backend,
             cipher,
+            hasher,
             key,
             next_id: Arc::new(AtomicU64::new(10)), // Start from 10 to avoid collisions with reserved regions (0, 1, 2)
             persisted_id: Arc::new(AtomicU64::new(10)),
@@ -42,7 +45,8 @@ impl EfsBlockStorage {
     pub fn new_with_shared_state(
         backend: Arc<dyn StorageBackend>,
         cipher: Arc<dyn Cipher>,
-        key: Vec<u8>,
+        hasher: Arc<dyn Hasher>,
+        key: SecretBox<Key32>,
         chunk_size: usize,
         next_id: Arc<AtomicU64>,
         persisted_id: Arc<AtomicU64>,
@@ -51,6 +55,7 @@ impl EfsBlockStorage {
         Self {
             backend,
             cipher,
+            hasher,
             key,
             next_id,
             persisted_id,
@@ -60,12 +65,12 @@ impl EfsBlockStorage {
     }
 
     pub fn block_name(&self, region_id: RegionId, id: BlockId) -> String {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&self.key);
-        hasher.update(&region_id.to_le_bytes());
-        hasher.update(&id.to_le_bytes());
-        let hash = hasher.finalize();
-        hex::encode(hash.as_bytes())
+        let mut data = Vec::new();
+        data.extend_from_slice(self.key.expose_secret().as_ref());
+        data.extend_from_slice(&region_id.to_le_bytes());
+        data.extend_from_slice(&id.to_le_bytes());
+        let hash = self.hasher.hash(&data);
+        hex::encode(hash)
     }
 
     pub fn next_id(&self) -> Arc<AtomicU64> {
@@ -101,7 +106,7 @@ impl EfsBlockStorage {
         let plaintext = self
             .cipher
             .decrypt(
-                &self.key,
+                self.key.expose_secret().as_ref(),
                 &ad,
                 &envelope.nonce,
                 &envelope.tag,
@@ -135,7 +140,7 @@ impl EfsBlockStorage {
 
         let (ciphertext, nonce, tag) =
             self.cipher
-                .encrypt(&self.key, &ad, &padded_data)
+                .encrypt(self.key.expose_secret().as_ref(), &ad, &padded_data)
                 .context(format!(
                     "Failed to encrypt block {} in region {}",
                     id, region_id

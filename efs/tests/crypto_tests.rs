@@ -3,7 +3,7 @@ use efs::crypto::{Cipher, Hasher, Kdf};
 
 #[test]
 fn test_standard_crypto_flow() {
-    let cipher = Aes256GcmCipher;
+    let cipher = Aes256GcmCipher::default();
     let key = [0u8; 32];
     let ad = b"associated data";
     let plaintext = b"secret message";
@@ -17,7 +17,7 @@ fn test_standard_crypto_flow() {
 
 #[test]
 fn test_kdf() {
-    let kdf = Argon2Kdf;
+    let kdf = Argon2Kdf::default();
     let mut output1 = [0u8; 32];
     let mut output2 = [0u8; 32];
     let salt = b"salt-must-be-long";
@@ -34,7 +34,7 @@ fn test_kdf() {
 
 #[test]
 fn test_hasher() {
-    let hasher = Blake3Hasher;
+    let hasher = Blake3Hasher::default();
     let h1 = hasher.hash(b"data");
     let h2 = hasher.hash(b"data");
     assert_eq!(h1, h2);

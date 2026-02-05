@@ -695,6 +695,7 @@ dependencies = [
  "pbkdf2",
  "rand 0.8.5",
  "rpassword",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2",
@@ -703,6 +704,7 @@ dependencies = [
  "tokio",
  "tracing",
  "walkdir",
+ "zeroize",
 ]
 
 [[package]]
@@ -720,6 +722,7 @@ dependencies = [
  "predicates",
  "rand 0.8.5",
  "rpassword",
+ "secrecy",
  "serde",
  "serde_json",
  "tempfile",
@@ -742,6 +745,7 @@ dependencies = [
  "rand 0.8.5",
  "ratatui",
  "rpassword",
+ "secrecy",
  "serde",
  "serde_json",
  "tokio",
@@ -2173,6 +2177,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "secrecy"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
+dependencies = [
+ "serde",
+ "zeroize",
+]
+
+[[package]]
 name = "security-framework"
 version = "3.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3441,6 +3455,20 @@ name = "zeroize"
 version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
+dependencies = [
+ "zeroize_derive",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85a5b4158499876c763cb03bc4e49185d3cccbabb15b33c627f7884f43db852e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
+]
 
 [[package]]
 name = "zerotrie"

@@ -1,17 +1,18 @@
 use crate::chunk::{Chunker, UniformEnvelope};
-use crate::crypto::{Cipher, Hasher, Kdf};
+use crate::crypto::{Cipher, Hasher, Kdf, Key32};
 use crate::storage::StorageBackend;
 use anyhow::{Context, Result};
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Zeroize)]
+#[zeroize(drop)]
 pub struct SiloConfig {
     pub chunk_size: usize,
     pub root_node_id: u64,
-    pub data_key: Vec<u8>,
+    pub data_key: SecretBox<Key32>,
 }
-
-pub mod session;
 
 pub struct SiloManager {
     kdf: Box<dyn Kdf>,
@@ -28,27 +29,27 @@ impl SiloManager {
         }
     }
 
-    pub fn derive_root_key(&self, password: &[u8], silo_id: &str) -> Result<Vec<u8>> {
-        let mut root_key = vec![0u8; 32];
+    pub fn derive_root_key(&self, password: &secrecy::SecretString, silo_id: &str) -> Result<SecretBox<Key32>> {
+        let mut root_key_bytes = [0u8; 32];
         let salt = self.hasher.hash(silo_id.as_bytes());
         self.kdf
-            .derive(password, &salt, &mut root_key)
+            .derive(password.expose_secret().as_bytes(), &salt, &mut root_key_bytes)
             .context("Failed to derive root key")?;
-        Ok(root_key)
+        Ok(SecretBox::new(Box::new(Key32(root_key_bytes))))
     }
 
-    pub fn derive_root_chunk_name(&self, root_key: &[u8]) -> String {
-        let hash = self.hasher.hash(root_key);
+    pub fn derive_root_chunk_name(&self, root_key: &SecretBox<Key32>) -> String {
+        let hash = self.hasher.hash(root_key.expose_secret().as_ref());
         hex::encode(hash)
     }
 
     pub async fn initialize_silo(
         &self,
         storage: &dyn StorageBackend,
-        password: &[u8],
+        password: &secrecy::SecretString,
         silo_id: &str,
         chunk_size: usize,
-        data_key: Vec<u8>,
+        data_key: SecretBox<Key32>,
     ) -> Result<()> {
         let root_key = self
             .derive_root_key(password, silo_id)
@@ -72,7 +73,7 @@ impl SiloManager {
 
         let (ciphertext, nonce, tag) = self
             .cipher
-            .encrypt(&root_key, b"root", &padded_config)
+            .encrypt(root_key.expose_secret().as_ref(), b"root", &padded_config)
             .context("Failed to encrypt silo config")?;
         let envelope = UniformEnvelope::new(nonce, tag, ciphertext);
         let envelope_bytes = envelope
@@ -90,7 +91,7 @@ impl SiloManager {
     pub async fn load_silo(
         &self,
         storage: &dyn StorageBackend,
-        password: &[u8],
+        password: &secrecy::SecretString,
         silo_id: &str,
     ) -> Result<SiloConfig> {
         let root_key = self
@@ -108,7 +109,7 @@ impl SiloManager {
         let plaintext = self
             .cipher
             .decrypt(
-                &root_key,
+                root_key.expose_secret().as_ref(),
                 b"root",
                 &envelope.nonce,
                 &envelope.tag,
