@@ -15,7 +15,7 @@ async fn test_memory_kv_config() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
 
-    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
+    let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
         .await
         .unwrap();
 
@@ -44,17 +44,10 @@ async fn test_local_btree_config() {
     )
     .await
     .unwrap();
-    let next_id = efs_temp.storage_adapter.next_id();
-
+    
     let index_storage = BPTreeStorage::new(
-        storage.clone(),
-        cipher.clone(),
-        key.clone(),
-        next_id,
-        efs_temp.storage_adapter.persisted_id(),
-        DEFAULT_CHUNK_SIZE,
+        efs_temp.storage_adapter.clone(),
         BTREE_INDEX_REGION_ID,
-        efs_temp.storage_adapter.allocation_lock(),
     );
     let index: Arc<dyn efs::EfsIndex<String, efs::EfsEntry>> = Arc::new(BtreeIndex::new(index_storage).unwrap());
 
@@ -86,7 +79,7 @@ async fn test_lru_memory_kv_config() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
 
-    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
+    let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
         .await
         .unwrap();
 
@@ -106,7 +99,7 @@ async fn test_local_kv_persistence() {
 
     let data = b"persistence test data";
     {
-        let mut efs = Efs::new(
+        let efs = Efs::new(
             storage.clone(),
             cipher.clone(),
             key.clone(),
@@ -134,7 +127,7 @@ async fn test_small_chunks() {
     let key = vec![0u8; 32];
     let chunk_size = 1024; // 1KB chunks
 
-    let mut efs = Efs::new(storage, cipher, key, chunk_size).await.unwrap();
+    let efs = Efs::new(storage, cipher, key, chunk_size).await.unwrap();
 
     let data = vec![0u8; 5000]; // Should span multiple chunks
     efs.put("large_file", &data).await.unwrap();
@@ -150,7 +143,7 @@ async fn test_s3_mock_config() {
     let cipher = Arc::new(StandardCipher);
     let key = vec![0u8; 32];
 
-    let mut efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
+    let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
         .await
         .unwrap();
 

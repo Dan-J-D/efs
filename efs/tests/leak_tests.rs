@@ -10,7 +10,7 @@ async fn test_directory_deletion_leak() {
     let key = vec![0u8; 32];
     let chunk_size = 4096; // Larger chunk size to avoid free list overflow
 
-    let mut efs = Efs::new(backend.clone(), cipher.clone(), key.clone(), chunk_size)
+    let efs = Efs::new(backend.clone(), cipher.clone(), key.clone(), chunk_size)
         .await
         .unwrap();
 

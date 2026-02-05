@@ -10,7 +10,7 @@ async fn test_recursive_delete() {
     let key = vec![0u8; 32];
     let chunk_size = 1024; // Small chunk size for testing
 
-    let mut efs = Efs::new(backend.clone(), cipher, key, chunk_size)
+    let efs = Efs::new(backend.clone(), cipher, key, chunk_size)
         .await
         .unwrap();
 

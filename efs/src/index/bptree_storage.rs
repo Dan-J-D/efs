@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::storage::block::EfsBlockStorage;
+
 #[derive(Clone)]
 pub struct BPTreeStorage {
     pub backend: Arc<dyn StorageBackend>,
@@ -23,24 +25,18 @@ pub struct BPTreeStorage {
 
 impl BPTreeStorage {
     pub fn new(
-        backend: Arc<dyn StorageBackend>,
-        cipher: Arc<dyn Cipher>,
-        key: Vec<u8>,
-        next_id: Arc<AtomicU64>,
-        persisted_id: Arc<AtomicU64>,
-        chunk_size: usize,
+        storage: EfsBlockStorage,
         region_id: RegionId,
-        allocation_lock: Arc<Mutex<()>>,
     ) -> Self {
         Self {
-            backend,
-            cipher,
-            key,
-            next_id,
-            persisted_id,
-            chunk_size,
+            backend: storage.backend,
+            cipher: storage.cipher,
+            key: storage.key,
+            next_id: storage.next_id,
+            persisted_id: storage.persisted_id,
+            chunk_size: storage.chunk_size,
             region_id,
-            allocation_lock,
+            allocation_lock: storage.allocation_lock,
         }
     }
 

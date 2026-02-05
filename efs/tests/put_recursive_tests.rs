@@ -13,7 +13,7 @@ async fn test_put_recursive_preserves_empty_directories() -> Result<()> {
     fs::create_dir(&sub_dir_path)?;
     fs::write(sub_dir_path.join("file.txt"), "hello")?;
 
-    let mut efs = EfsBuilder::new().build().await?;
+    let efs = EfsBuilder::new().build().await?;
 
     efs.put_recursive(local_dir.path().to_str().unwrap(), "root")
         .await?;
@@ -42,7 +42,7 @@ async fn test_put_single_file_to_nested_remote_path() -> Result<()> {
     let file_path = local_dir.path().join("test.txt");
     fs::write(&file_path, "nested hello")?;
 
-    let mut efs = EfsBuilder::new().build().await?;
+    let efs = EfsBuilder::new().build().await?;
 
     // Upload single file to a deeply nested remote path where parents don't exist
     efs.put_recursive(file_path.to_str().unwrap(), "a/b/c/d/test.txt")

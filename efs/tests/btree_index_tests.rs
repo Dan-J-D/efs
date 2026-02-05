@@ -16,15 +16,19 @@ async fn test_btree_index_hierarchical() {
     let chunk_size = 1024 * 1024;
     let next_id = Arc::new(AtomicU64::new(10)); // Start from 10 to avoid collisions with reserved blocks
 
-    let storage = BPTreeStorage::new(
+    let storage_adapter = efs::storage::block::EfsBlockStorage::new_with_shared_state(
         backend.clone(),
         cipher.clone(),
         key.clone(),
-        next_id.clone(),
-        next_id.clone(),
         chunk_size,
-        BTREE_INDEX_REGION_ID,
+        next_id.clone(),
+        next_id.clone(),
         Arc::new(tokio::sync::Mutex::new(())),
+    );
+
+    let storage = BPTreeStorage::new(
+        storage_adapter,
+        BTREE_INDEX_REGION_ID,
     );
 
     let index = BtreeIndex::new(storage).unwrap();
@@ -227,15 +231,19 @@ async fn test_btree_index_no_implicit_creation() {
     let chunk_size = 1024 * 1024;
     let next_id = Arc::new(AtomicU64::new(10));
 
-    let storage = BPTreeStorage::new(
+    let storage_adapter = efs::storage::block::EfsBlockStorage::new_with_shared_state(
         backend.clone(),
         cipher.clone(),
         key.clone(),
-        next_id.clone(),
-        next_id.clone(),
         chunk_size,
-        BTREE_INDEX_REGION_ID,
+        next_id.clone(),
+        next_id.clone(),
         Arc::new(tokio::sync::Mutex::new(())),
+    );
+
+    let storage = BPTreeStorage::new(
+        storage_adapter,
+        BTREE_INDEX_REGION_ID,
     );
 
     let index = BtreeIndex::new(storage).unwrap();

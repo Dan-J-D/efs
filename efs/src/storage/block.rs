@@ -10,14 +10,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+#[derive(Clone)]
 pub struct EfsBlockStorage {
-    backend: Arc<dyn StorageBackend>,
-    cipher: Arc<dyn Cipher>,
-    key: Vec<u8>,
-    next_id: Arc<AtomicU64>,
-    persisted_id: Arc<AtomicU64>,
-    chunk_size: usize,
-    allocation_lock: Arc<Mutex<()>>,
+    pub(crate) backend: Arc<dyn StorageBackend>,
+    pub(crate) cipher: Arc<dyn Cipher>,
+    pub(crate) key: Vec<u8>,
+    pub(crate) next_id: Arc<AtomicU64>,
+    pub(crate) persisted_id: Arc<AtomicU64>,
+    pub(crate) chunk_size: usize,
+    pub(crate) allocation_lock: Arc<Mutex<()>>,
 }
 
 impl EfsBlockStorage {

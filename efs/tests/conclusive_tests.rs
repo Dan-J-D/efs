@@ -1,8 +1,6 @@
 use efs::crypto::standard::StandardCipher;
 use efs::storage::memory::MemoryBackend;
-use efs::storage::{ALLOCATOR_STATE_BLOCK_ID, METADATA_REGION_ID};
 use efs::Efs;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 async fn verify_no_leaks(_efs: &Efs) {
@@ -17,7 +15,7 @@ async fn test_conclusive_lifecycle() {
     let key = vec![0u8; 32];
     let chunk_size = 1024; // Small chunk size to trigger more blocks
 
-    let mut efs = Efs::new(backend.clone(), cipher.clone(), key.clone(), chunk_size)
+    let efs = Efs::new(backend.clone(), cipher.clone(), key.clone(), chunk_size)
         .await
         .unwrap();
 
@@ -80,7 +78,7 @@ async fn test_concurrent_puts() {
     for i in 0..20 {
         let efs_clone = efs.clone();
         handles.push(tokio::spawn(async move {
-            let mut efs = efs_clone.lock().await;
+            let efs = efs_clone.lock().await;
             efs.put(&format!("/concurrent_{}.txt", i), b"some data")
                 .await
                 .unwrap();

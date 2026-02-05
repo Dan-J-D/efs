@@ -800,16 +800,14 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                                     Ok(data) => {
                                         if let Err(e) = efs.put(&dst, &data).await {
                                             app.state = AppState::Error(e.to_string());
+                                        } else if let Err(e) = efs.delete(&src).await {
+                                            app.state = AppState::Error(format!(
+                                                "Failed to delete source after upload: {}",
+                                                e
+                                            ));
                                         } else {
-                                            if let Err(e) = efs.delete(&src).await {
-                                                app.state = AppState::Error(format!(
-                                                    "Failed to delete source after upload: {}",
-                                                    e
-                                                ));
-                                            } else {
-                                                let _ = app.refresh_files().await;
-                                                app.state = AppState::Main;
-                                            }
+                                            let _ = app.refresh_files().await;
+                                            app.state = AppState::Main;
                                         }
                                     }
                                     Err(e) => app.state = AppState::Error(e.to_string()),

@@ -2,7 +2,6 @@ use efs::crypto::standard::StandardCipher;
 use efs::index::{BPTreeStorage, BtreeIndex};
 use efs::storage::local::LocalBackend;
 use efs::{Efs, EfsBlockStorage, BTREE_INDEX_REGION_ID, DEFAULT_CHUNK_SIZE};
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -18,17 +17,11 @@ async fn test_efs_builder_custom_index() {
     // We need to load next_id to properly construct BPTreeStorage for BtreeIndex
     let storage_adapter =
         EfsBlockStorage::new(backend.clone(), cipher.clone(), key.clone(), chunk_size);
-    let next_id = storage_adapter.load_next_id().await.unwrap();
+    storage_adapter.load_next_id().await.unwrap();
 
     let btree_storage = BPTreeStorage::new(
-        backend.clone(),
-        cipher.clone(),
-        key.clone(),
-        storage_adapter.next_id(),
-        storage_adapter.persisted_id(),
-        chunk_size,
+        storage_adapter,
         BTREE_INDEX_REGION_ID,
-        storage_adapter.allocation_lock(),
     );
     let btree_index: Arc<dyn efs::EfsIndex<String, efs::EfsEntry>> = Arc::new(BtreeIndex::new(btree_storage).unwrap());
 

@@ -13,7 +13,7 @@ async fn test_next_id_persistence() {
     let chunk_size = DEFAULT_CHUNK_SIZE;
 
     {
-        let mut efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), chunk_size)
+        let efs = Efs::new(storage.clone(), cipher.clone(), key.clone(), chunk_size)
             .await
             .unwrap();
         // Initially next_id should be 10

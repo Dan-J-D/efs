@@ -222,15 +222,18 @@ impl EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
                 cache_backend,
                 self.storage.clone(),
             ));
-            let index_storage = crate::index::BPTreeStorage::new(
+            let cached_adapter = EfsBlockStorage::new_with_shared_state(
                 cached_storage,
                 self.cipher.clone(),
                 self.key.clone(),
+                self.chunk_size,
                 storage_adapter.next_id(),
                 storage_adapter.persisted_id(),
-                self.chunk_size,
-                BTREE_INDEX_REGION_ID,
                 storage_adapter.allocation_lock(),
+            );
+            let index_storage = crate::index::BPTreeStorage::new(
+                cached_adapter,
+                BTREE_INDEX_REGION_ID,
             );
             Arc::new(
                 crate::index::BtreeIndex::new(index_storage)
@@ -413,7 +416,7 @@ where
         // Successfully updated index, now deallocate old blocks if this was an overwrite
         if let Some((old_id, old_size)) = old_file_info {
             let payload_size = UniformEnvelope::payload_size(self.chunk_size);
-            let num_blocks = (old_size as usize + payload_size - 1) / payload_size;
+            let num_blocks = (old_size as usize).div_ceil(payload_size);
             let old_ids: Vec<u64> = (old_id..old_id + num_blocks as u64).collect();
             let _ = self
                 .storage_adapter
@@ -487,7 +490,7 @@ where
         };
 
         let payload_size = UniformEnvelope::payload_size(self.chunk_size);
-        let num_blocks = (total_size as usize + payload_size - 1) / payload_size;
+                let num_blocks = (total_size as usize).div_ceil(payload_size);
         let block_ids: Vec<u64> = (file_id..file_id + num_blocks as u64).collect();
 
         let mut download_futures = Vec::new();
@@ -570,7 +573,7 @@ where
                 total_size,
             } => {
                 let payload_size = UniformEnvelope::payload_size(self.chunk_size);
-                let num_blocks = (total_size as usize + payload_size - 1) / payload_size;
+        let num_blocks = (total_size as usize).div_ceil(payload_size);
                 (file_id..file_id + num_blocks as u64).collect()
             }
             EfsEntry::Directory => Vec::new(),
