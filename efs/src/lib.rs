@@ -172,12 +172,13 @@ impl Efs {
     pub async fn put(&mut self, path: &str, data: &[u8]) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
 
+        let mut old_block_ids = None;
         // Check if entry already exists to prevent leaks on overwrite
         if let Some(entry) = self.index.get_entry(&path).await? {
             match entry {
-                EfsEntry::File { .. } => {
-                    // Delete the existing file first to free its blocks
-                    self.delete(&path).await?;
+                EfsEntry::File { block_ids, .. } => {
+                    // Remember old blocks to deallocate them after successful overwrite
+                    old_block_ids = Some(block_ids);
                 }
                 EfsEntry::Directory => {
                     return Err(anyhow!(
@@ -256,6 +257,14 @@ impl Efs {
                     .await;
             }
             return Err(e).context("Failed to insert file into index; cleaned up allocated blocks");
+        }
+
+        // Successfully updated index, now deallocate old blocks if this was an overwrite
+        if let Some(old_ids) = old_block_ids {
+            let _ = self
+                .storage_adapter
+                .deallocate_blocks(FILE_DATA_REGION_ID, old_ids)
+                .await;
         }
 
         Ok(())
