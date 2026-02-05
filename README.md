@@ -32,7 +32,7 @@ This project is organized as a Rust workspace:
 Clone the repository and build the workspace:
 
 ```bash
-git clone https://github.com/your-repo/efs.git
+git clone https://github.com/dan-j-d/efs.git
 cd efs
 cargo build --release
 ```
