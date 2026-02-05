@@ -163,14 +163,14 @@ impl App {
         )
         .await?;
 
-        self.files = efs.index.list().await?;
+        self.files = efs.list().await?;
         self.efs = Some(efs);
         Ok(())
     }
 
     async fn refresh_files(&mut self) -> Result<()> {
         if let Some(efs) = &self.efs {
-            self.files = efs.index.list().await?;
+            self.files = efs.list().await?;
         }
         Ok(())
     }

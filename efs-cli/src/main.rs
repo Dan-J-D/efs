@@ -243,7 +243,7 @@ async fn main() -> Result<()> {
                 silo_cfg.chunk_size,
             )
             .await?;
-            for path in efs.index.list().await? {
+            for path in efs.list().await? {
                 println!("{}", path);
             }
         }

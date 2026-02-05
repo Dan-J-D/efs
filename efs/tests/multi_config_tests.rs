@@ -25,7 +25,7 @@ async fn test_memory_kv_config() {
     let retrieved = efs.get("test_file").await.unwrap();
     assert_eq!(data.to_vec(), retrieved);
 
-    let list = efs.index.list().await.unwrap();
+    let list = efs.list().await.unwrap();
     assert_eq!(list, vec!["test_file"]);
 }
 
@@ -74,7 +74,7 @@ async fn test_local_btree_config() {
     let retrieved = efs.get("/dir1/dir2/test_file").await.unwrap();
     assert_eq!(data.to_vec(), retrieved);
 
-    let list = efs.index.list().await.unwrap();
+    let list = efs.list().await.unwrap();
     assert!(list.contains(&"dir1/dir2/test_file".to_string()));
 }
 

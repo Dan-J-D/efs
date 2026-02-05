@@ -18,9 +18,10 @@ use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use getset::{Getters, Setters};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum EfsEntry {
     File {
         block_ids: Vec<u64>,
@@ -30,19 +31,17 @@ pub enum EfsEntry {
 }
 
 #[async_trait]
-pub trait EfsIndex: Send + Sync {
-    async fn insert(&self, path: &str, block_ids: Vec<u64>, total_size: u64) -> Result<()>;
-    async fn mkdir(&self, path: &str) -> Result<()>;
-    async fn get(&self, path: &str) -> Result<Option<(Vec<u64>, u64)>>;
-    async fn get_entry(&self, path: &str) -> Result<Option<EfsEntry>>;
-    async fn list(&self) -> Result<Vec<String>>;
-    async fn list_dir(&self, path: &str) -> Result<Vec<(String, EfsEntry)>>;
-    async fn delete(&self, path: &str) -> Result<()>;
-    async fn delete_region(&self, path: &str) -> Result<()>;
+pub trait EfsIndex<K, V>: Send + Sync {
+    async fn put(&self, key: &K, value: V) -> Result<()>;
+    async fn get(&self, key: &K) -> Result<Option<V>>;
+    async fn list(&self) -> Result<Vec<(K, V)>>;
+    async fn list_dir(&self, key: &K) -> Result<Vec<(K, V)>>;
+    async fn delete(&self, key: &K) -> Result<()>;
+    async fn delete_region(&self, key: &K) -> Result<()>;
 }
 
 pub struct Efs {
-    pub index: Arc<dyn EfsIndex>,
+    pub index: Arc<dyn EfsIndex<String, EfsEntry>>,
     pub storage_adapter: EfsBlockStorage,
     pub storage: Arc<dyn StorageBackend>,
     pub cipher: Arc<dyn Cipher>,
@@ -61,7 +60,7 @@ pub struct EfsBuilder {
     #[getset(get = "pub", set = "pub")]
     chunk_size: usize,
     #[getset(get = "pub", set = "pub")]
-    index: Option<Arc<dyn EfsIndex>>,
+    index: Option<Arc<dyn EfsIndex<String, EfsEntry>>>,
 }
 
 impl Default for EfsBuilder {
@@ -101,7 +100,7 @@ impl EfsBuilder {
         self
     }
 
-    pub fn with_index(mut self, index: Arc<dyn EfsIndex>) -> Self {
+    pub fn with_index(mut self, index: Arc<dyn EfsIndex<String, EfsEntry>>) -> Self {
         self.index = Some(index);
         self
     }
@@ -172,9 +171,13 @@ impl Efs {
     pub async fn put(&mut self, path: &str, data: &[u8]) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
 
+        if let Some(parent) = crate::path::get_parent(&path) {
+            self.mkdir_p(parent).await?;
+        }
+
         let mut old_block_ids = None;
         // Check if entry already exists to prevent leaks on overwrite
-        if let Some(entry) = self.index.get_entry(&path).await? {
+        if let Some(entry) = self.index.get(&path).await? {
             match entry {
                 EfsEntry::File { block_ids, .. } => {
                     // Remember old blocks to deallocate them after successful overwrite
@@ -246,7 +249,13 @@ impl Efs {
 
         if let Err(e) = self
             .index
-            .insert(&path, block_ids.clone(), total_size)
+            .put(
+                &path,
+                EfsEntry::File {
+                    block_ids: block_ids.clone(),
+                    total_size,
+                },
+            )
             .await
         {
             // Try to cleanup allocated blocks on index failure to prevent leakage
@@ -270,7 +279,7 @@ impl Efs {
 
     pub async fn mkdir(&mut self, path: &str) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
-        if let Some(entry) = self.index.get_entry(&path).await? {
+        if let Some(entry) = self.index.get(&path).await? {
             match entry {
                 EfsEntry::Directory => return Ok(()),
                 EfsEntry::File { .. } => {
@@ -281,17 +290,43 @@ impl Efs {
                 }
             }
         }
-        self.index.mkdir(&path).await
+        self.index.put(&path, EfsEntry::Directory).await
+    }
+
+    pub async fn mkdir_p(&mut self, path: &str) -> Result<()> {
+        let path = crate::path::normalize_path(path)?;
+        if path.is_empty() {
+            return Ok(());
+        }
+
+        let parts: Vec<&str> = path.split('/').collect();
+        let mut current = String::new();
+        for part in parts {
+            if !current.is_empty() {
+                current.push('/');
+            }
+            current.push_str(part);
+            self.mkdir(&current).await?;
+        }
+        Ok(())
     }
 
     pub async fn get(&self, path: &str) -> Result<Vec<u8>> {
         let path = crate::path::normalize_path(path)?;
-        let (block_ids, total_size) = self
+        let entry = self
             .index
             .get(&path)
             .await
             .context("Failed to query index")?
             .ok_or_else(|| anyhow!("File not found: {}", path))?;
+
+        let (block_ids, total_size) = match entry {
+            EfsEntry::File {
+                block_ids,
+                total_size,
+            } => (block_ids, total_size),
+            EfsEntry::Directory => return Err(anyhow!("Path is a directory")),
+        };
 
         let mut download_futures = Vec::new();
 
@@ -343,7 +378,14 @@ impl Efs {
     }
 
     pub async fn list(&self) -> Result<Vec<String>> {
-        self.index.list().await
+        let entries = self.index.list().await?;
+        Ok(entries
+            .into_iter()
+            .filter_map(|(k, e)| match e {
+                EfsEntry::File { .. } => Some(k),
+                EfsEntry::Directory => None,
+            })
+            .collect())
     }
 
     pub async fn list_dir(&self, path: &str) -> Result<Vec<(String, EfsEntry)>> {
@@ -353,22 +395,29 @@ impl Efs {
 
     pub async fn delete(&mut self, path: &str) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
-        let (block_ids, _) = self
+        let entry = self
             .index
             .get(&path)
             .await
             .context("Failed to query index")?
             .ok_or_else(|| anyhow!("File not found: {}", path))?;
 
+        let block_ids = match entry {
+            EfsEntry::File { block_ids, .. } => block_ids,
+            EfsEntry::Directory => Vec::new(),
+        };
+
         self.index
             .delete(&path)
             .await
             .context("Failed to delete from index")?;
 
-        self.storage_adapter
-            .deallocate_blocks(FILE_DATA_REGION_ID, block_ids)
-            .await
-            .context("Failed to deallocate blocks")?;
+        if !block_ids.is_empty() {
+            self.storage_adapter
+                .deallocate_blocks(FILE_DATA_REGION_ID, block_ids)
+                .await
+                .context("Failed to deallocate blocks")?;
+        }
 
         Ok(())
     }
@@ -377,7 +426,7 @@ impl Efs {
         let path = crate::path::normalize_path(path)?;
         let entry = self
             .index
-            .get_entry(&path)
+            .get(&path)
             .await?
             .ok_or_else(|| anyhow!("Path not found: {}", path))?;
 
@@ -394,7 +443,8 @@ impl Efs {
 
     #[async_recursion]
     async fn delete_dir_recursive(&mut self, path: &str) -> Result<()> {
-        let contents = self.index.list_dir(path).await?;
+        let path_str = path.to_string();
+        let contents = self.index.list_dir(&path_str).await?;
 
         let mut futures = Vec::new();
         for (name, entry) in contents {
@@ -423,9 +473,9 @@ impl Efs {
         }
 
         // Delete the region chunks if the index supports it (e.g. BtreeIndex)
-        self.index.delete_region(path).await?;
+        self.index.delete_region(&path_str).await?;
         // Finally delete the directory entry from parent index
-        self.index.delete(path).await?;
+        self.index.delete(&path_str).await?;
 
         Ok(())
     }
@@ -459,7 +509,7 @@ impl Efs {
 
                 if entry.file_type().is_dir() {
                     // Always try to create the directory, even if rel_path is empty (the root of upload)
-                    self.mkdir(&remote_item_path).await?;
+                    self.mkdir_p(&remote_item_path).await?;
                 } else {
                     let data = std::fs::read(entry.path())?;
                     self.put(&remote_item_path, &data).await?;

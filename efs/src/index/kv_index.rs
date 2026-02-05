@@ -1,134 +1,81 @@
 use crate::index::bptree_storage::BPTreeStorage;
-use crate::{EfsEntry, EfsIndex};
-use anyhow::{Context, Result};
+use crate::EfsIndex;
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use bptree::BPTree;
+use serde::{de::DeserializeOwned, Serialize};
+use std::fmt::Debug;
 use tokio::sync::RwLock;
 
-pub struct KvIndex {
-    tree: RwLock<BPTree<String, (Vec<u64>, u64), BPTreeStorage>>,
+pub struct KvIndex<K, V>
+where
+    K: Serialize + DeserializeOwned + Ord + Clone + Send + Sync + Debug + 'static,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync + Debug + 'static,
+{
+    tree: RwLock<BPTree<K, V, BPTreeStorage>>,
+    #[allow(dead_code)]
+    storage: BPTreeStorage,
 }
 
-impl KvIndex {
+impl<K, V> KvIndex<K, V>
+where
+    K: Serialize + DeserializeOwned + Ord + Clone + Send + Sync + Debug + 'static,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync + Debug + 'static,
+{
     pub async fn new(storage: BPTreeStorage) -> Result<Self> {
-        let tree = BPTree::new(storage)
+        let tree = BPTree::new(storage.clone())
             .await
             .context("Failed to initialize BPTree for KvIndex")?;
         Ok(Self {
             tree: RwLock::new(tree),
+            storage,
         })
     }
 }
 
 #[async_trait]
-impl EfsIndex for KvIndex {
-    async fn insert(&self, path: &str, block_ids: Vec<u64>, total_size: u64) -> Result<()> {
+impl<K, V> EfsIndex<K, V> for KvIndex<K, V>
+where
+    K: Serialize + DeserializeOwned + Ord + Clone + Send + Sync + Debug + 'static,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync + Debug + 'static,
+{
+    async fn put(&self, key: &K, value: V) -> Result<()> {
         let mut tree = self.tree.write().await;
-        tree.insert(path.to_string(), (block_ids, total_size))
+        tree.insert(key.clone(), value)
             .await
             .context("Failed to insert entry into KvIndex")?;
         Ok(())
     }
 
-    async fn mkdir(&self, path: &str) -> Result<()> {
-        // Flat index does not have explicit directory entries.
-        // We just validate the path.
-        crate::path::normalize_path(path)?;
-        Ok(())
-    }
-
-    async fn get(&self, path: &str) -> Result<Option<(Vec<u64>, u64)>> {
+    async fn get(&self, key: &K) -> Result<Option<V>> {
         let tree = self.tree.read().await;
-        tree.get(&path.to_string())
+        tree.get(key)
             .await
             .context("Failed to retrieve entry from KvIndex")
     }
 
-    async fn get_entry(&self, path: &str) -> Result<Option<EfsEntry>> {
+    async fn list(&self) -> Result<Vec<(K, V)>> {
         let tree = self.tree.read().await;
-        let path_str = path.to_string();
-
-        // Check if it is a file
-        if let Some((block_ids, total_size)) = tree
-            .get(&path_str)
-            .await
-            .context("Failed to retrieve entry from KvIndex")?
-        {
-            return Ok(Some(EfsEntry::File {
-                block_ids,
-                total_size,
-            }));
+        let mut entries = Vec::new();
+        for (k, v) in tree.range(..).await.map_err(|e| anyhow!("{}", e))? {
+            entries.push((k, v));
         }
-
-        // Check if it is a directory (prefix)
-        let mut prefix = path_str;
-        if !prefix.is_empty() && !prefix.ends_with('/') {
-            prefix.push('/');
-        }
-
-        for (p, _) in tree.range(..).await.map_err(|e| anyhow::anyhow!("{}", e))? {
-            if p.starts_with(&prefix) {
-                return Ok(Some(EfsEntry::Directory));
-            }
-        }
-
-        Ok(None)
+        Ok(entries)
     }
 
-    async fn list(&self) -> Result<Vec<String>> {
-        let tree = self.tree.read().await;
-        let mut paths = Vec::new();
-        for (path, _) in tree.range(..).await.map_err(|e| anyhow::anyhow!("{}", e))? {
-            paths.push(path);
-        }
-        Ok(paths)
+    async fn list_dir(&self, _key: &K) -> Result<Vec<(K, V)>> {
+        // Generic KvIndex doesn't support hierarchical list_dir unless K is String.
+        // We return empty for the generic case.
+        Ok(Vec::new())
     }
 
-    async fn list_dir(&self, path: &str) -> Result<Vec<(String, EfsEntry)>> {
-        let tree = self.tree.read().await;
-        let mut prefix = path.to_string();
-        if !prefix.is_empty() && !prefix.ends_with('/') {
-            prefix.push('/');
-        }
-        // Normalize empty/root prefix for matching
-        if prefix == "/" {
-            prefix = String::new();
-        }
-
-        let mut entries = std::collections::HashMap::new();
-        for (p, value) in tree.range(..).await.map_err(|e| anyhow::anyhow!("{}", e))? {
-            if p.starts_with(&prefix) {
-                let remaining = &p[prefix.len()..];
-                if remaining.is_empty() {
-                    continue;
-                }
-
-                if let Some(slash_idx) = remaining.find('/') {
-                    let dir_name = &remaining[..slash_idx];
-                    entries.insert(dir_name.to_string(), EfsEntry::Directory);
-                } else {
-                    entries.insert(
-                        remaining.to_string(),
-                        EfsEntry::File {
-                            block_ids: value.0.clone(),
-                            total_size: value.1,
-                        },
-                    );
-                }
-            }
-        }
-        Ok(entries.into_iter().collect())
-    }
-
-    async fn delete(&self, path: &str) -> Result<()> {
+    async fn delete(&self, key: &K) -> Result<()> {
         let mut tree = self.tree.write().await;
-        // In a flat index, a "directory" doesn't have an entry to delete.
-        // We ignore the error if the exact path doesn't exist.
-        let _ = tree.delete(&path.to_string()).await;
+        let _ = tree.delete(key).await;
         Ok(())
     }
 
-    async fn delete_region(&self, _path: &str) -> Result<()> {
+    async fn delete_region(&self, _key: &K) -> Result<()> {
         // KvIndex is a flat index, no regions to delete
         Ok(())
     }

@@ -22,9 +22,19 @@ pub fn normalize_path(path: &str) -> Result<String> {
     Ok(parts.join("/"))
 }
 
-fn is_valid_name(name: &str) -> bool {
+pub fn is_valid_name(name: &str) -> bool {
     name.chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+}
+
+pub fn get_parent(path: &str) -> Option<&str> {
+    if path.is_empty() {
+        return None;
+    }
+    match path.rfind('/') {
+        Some(idx) => Some(&path[..idx]),
+        None => Some(""),
+    }
 }
 
 #[cfg(test)]
@@ -46,5 +56,13 @@ mod tests {
         assert!(normalize_path("a/b$/c").is_err());
         assert!(normalize_path("file name.txt").is_err());
         assert!(normalize_path("name?").is_err());
+    }
+
+    #[test]
+    fn test_get_parent() {
+        assert_eq!(get_parent("a/b/c"), Some("a/b"));
+        assert_eq!(get_parent("a/b"), Some("a"));
+        assert_eq!(get_parent("a"), Some(""));
+        assert_eq!(get_parent(""), None);
     }
 }

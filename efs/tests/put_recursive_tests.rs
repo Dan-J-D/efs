@@ -35,3 +35,21 @@ async fn test_put_recursive_preserves_empty_directories() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_put_single_file_to_nested_remote_path() -> Result<()> {
+    let local_dir = tempdir()?;
+    let file_path = local_dir.path().join("test.txt");
+    fs::write(&file_path, "nested hello")?;
+
+    let mut efs = EfsBuilder::new().build().await?;
+
+    // Upload single file to a deeply nested remote path where parents don't exist
+    efs.put_recursive(file_path.to_str().unwrap(), "a/b/c/d/test.txt")
+        .await?;
+
+    let data = efs.get("a/b/c/d/test.txt").await?;
+    assert_eq!(data, b"nested hello");
+
+    Ok(())
+}

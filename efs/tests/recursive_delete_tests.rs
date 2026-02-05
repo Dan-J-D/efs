@@ -30,7 +30,7 @@ async fn test_recursive_delete() {
     assert_eq!(efs.get("/a/f/g.txt").await.unwrap(), b"content g");
 
     // List files
-    let mut files = efs.index.list().await.unwrap();
+    let mut files = efs.list().await.unwrap();
     files.sort();
     assert_eq!(files, vec!["a/b/c.txt", "a/d.txt", "a/f/g.txt", "e.txt"]);
 
@@ -38,7 +38,7 @@ async fn test_recursive_delete() {
     efs.delete_recursive("/a/f").await.unwrap();
     assert!(efs.get("/a/f/g.txt").await.is_err());
 
-    let mut files = efs.index.list().await.unwrap();
+    let mut files = efs.list().await.unwrap();
     files.sort();
     assert_eq!(files, vec!["a/b/c.txt", "a/d.txt", "e.txt"]);
 
@@ -47,13 +47,13 @@ async fn test_recursive_delete() {
     assert!(efs.get("/a/b/c.txt").await.is_err());
     assert!(efs.get("/a/d.txt").await.is_err());
 
-    let mut files = efs.index.list().await.unwrap();
+    let mut files = efs.list().await.unwrap();
     files.sort();
     assert_eq!(files, vec!["e.txt"]);
 
     // Finally delete e.txt
     efs.delete("/e.txt").await.unwrap();
-    let files = efs.index.list().await.unwrap();
+    let files = efs.list().await.unwrap();
     assert_eq!(files.len(), 0);
 
     // Explicitly test region deletion for BtreeIndex

@@ -184,7 +184,7 @@ impl EfsBlockStorage {
     ) -> Result<Vec<BlockId>> {
         let lock = self.allocation_lock.clone();
         let _guard = lock.lock().await;
-        
+
         let first_id = self.next_id.fetch_add(count as u64, Ordering::SeqCst);
         let new_next_id = first_id + count as u64;
 

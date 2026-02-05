@@ -53,106 +53,101 @@ impl BtreeIndex {
 }
 
 #[async_trait]
-impl EfsIndex for BtreeIndex {
-    async fn insert(&self, path: &str, block_ids: Vec<u64>, total_size: u64) -> Result<()> {
-        let parts = self.normalize_path(path)?;
-        if parts.is_empty() {
-            return Err(anyhow!("Cannot insert file at root path"));
-        }
-
-        let mut current_region = BTREE_INDEX_REGION_ID;
-
-        for part in parts.iter().take(parts.len() - 1) {
-            let tree = self.get_tree(current_region).await?;
-
-            match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
-                Some(IndexEntry::Directory { region_id }) => {
-                    current_region = region_id;
-                }
-                Some(IndexEntry::File { .. }) => {
-                    return Err(anyhow!("Path component '{}' is a file", part));
-                }
-                None => {
-                    return Err(anyhow!("Path component '{}' does not exist", part));
-                }
-            }
-        }
-
-        let mut tree = self.get_tree(current_region).await?;
-        tree.insert(
-            parts.last().unwrap().clone(),
-            IndexEntry::File {
+impl EfsIndex<String, EfsEntry> for BtreeIndex {
+    async fn put(&self, path: &String, value: EfsEntry) -> Result<()> {
+        match value {
+            EfsEntry::File {
                 block_ids,
                 total_size,
-            },
-        )
-        .await
-        .map_err(|e| anyhow!("Insert error: {}", e))?;
-
-        Ok(())
-    }
-
-    async fn mkdir(&self, path: &str) -> Result<()> {
-        let parts = self.normalize_path(path)?;
-        if parts.is_empty() {
-            return Ok(());
-        }
-
-        let mut current_region = BTREE_INDEX_REGION_ID;
-
-        for part in parts.iter().take(parts.len() - 1) {
-            let tree = self.get_tree(current_region).await?;
-
-            match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
-                Some(IndexEntry::Directory { region_id }) => {
-                    current_region = region_id;
+            } => {
+                let parts = self.normalize_path(path)?;
+                if parts.is_empty() {
+                    return Err(anyhow!("Cannot insert file at root path"));
                 }
-                Some(IndexEntry::File { .. }) => {
-                    return Err(anyhow!("Path component '{}' is a file", part));
+
+                let mut current_region = BTREE_INDEX_REGION_ID;
+
+                for part in parts.iter().take(parts.len() - 1) {
+                    let tree = self.get_tree(current_region).await?;
+
+                    match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
+                        Some(IndexEntry::Directory { region_id }) => {
+                            current_region = region_id;
+                        }
+                        Some(IndexEntry::File { .. }) => {
+                            return Err(anyhow!("Path component '{}' is a file", part));
+                        }
+                        None => {
+                            return Err(anyhow!("Path component '{}' does not exist", part));
+                        }
+                    }
                 }
-                None => {
-                    return Err(anyhow!("Path component '{}' does not exist", part));
+
+                let mut tree = self.get_tree(current_region).await?;
+                tree.insert(
+                    parts.last().unwrap().clone(),
+                    IndexEntry::File {
+                        block_ids,
+                        total_size,
+                    },
+                )
+                .await
+                .map_err(|e| anyhow!("Insert error: {}", e))?;
+
+                Ok(())
+            }
+            EfsEntry::Directory => {
+                let parts = self.normalize_path(path)?;
+                if parts.is_empty() {
+                    return Ok(());
                 }
+
+                let mut current_region = BTREE_INDEX_REGION_ID;
+
+                for part in parts.iter().take(parts.len() - 1) {
+                    let tree = self.get_tree(current_region).await?;
+
+                    match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
+                        Some(IndexEntry::Directory { region_id }) => {
+                            current_region = region_id;
+                        }
+                        Some(IndexEntry::File { .. }) => {
+                            return Err(anyhow!("Path component '{}' is a file", part));
+                        }
+                        None => {
+                            return Err(anyhow!("Path component '{}' does not exist", part));
+                        }
+                    }
+                }
+
+                if let Some(last_part) = parts.last() {
+                    let mut tree = self.get_tree(current_region).await?;
+                    match tree.get(last_part).await.map_err(|e| anyhow!("{}", e))? {
+                        Some(IndexEntry::Directory { .. }) => {
+                            return Err(anyhow!("Directory '{}' already exists", last_part));
+                        }
+                        Some(IndexEntry::File { .. }) => {
+                            return Err(anyhow!("File '{}' already exists", last_part));
+                        }
+                        None => {
+                            let new_region = self.allocate_region().await?;
+                            tree.insert(
+                                last_part.clone(),
+                                IndexEntry::Directory {
+                                    region_id: new_region,
+                                },
+                            )
+                            .await
+                            .map_err(|e| anyhow!("{}", e))?;
+                        }
+                    }
+                }
+                Ok(())
             }
         }
-
-        if let Some(last_part) = parts.last() {
-            let mut tree = self.get_tree(current_region).await?;
-            match tree.get(last_part).await.map_err(|e| anyhow!("{}", e))? {
-                Some(IndexEntry::Directory { .. }) => {
-                    return Err(anyhow!("Directory '{}' already exists", last_part));
-                }
-                Some(IndexEntry::File { .. }) => {
-                    return Err(anyhow!("File '{}' already exists", last_part));
-                }
-                None => {
-                    let new_region = self.allocate_region().await?;
-                    tree.insert(
-                        last_part.clone(),
-                        IndexEntry::Directory {
-                            region_id: new_region,
-                        },
-                    )
-                    .await
-                    .map_err(|e| anyhow!("{}", e))?;
-                }
-            }
-        }
-        Ok(())
     }
 
-    async fn get(&self, path: &str) -> Result<Option<(Vec<u64>, u64)>> {
-        match self.get_entry(path).await? {
-            Some(EfsEntry::File {
-                block_ids,
-                total_size,
-            }) => Ok(Some((block_ids, total_size))),
-            Some(EfsEntry::Directory) => Err(anyhow!("Path is a directory")),
-            None => Ok(None),
-        }
-    }
-
-    async fn get_entry(&self, path: &str) -> Result<Option<EfsEntry>> {
+    async fn get(&self, path: &String) -> Result<Option<EfsEntry>> {
         let parts = match self.normalize_path(path) {
             Ok(p) => p,
             Err(_) => return Ok(None),
@@ -196,14 +191,14 @@ impl EfsIndex for BtreeIndex {
         Ok(None)
     }
 
-    async fn list(&self) -> Result<Vec<String>> {
+    async fn list(&self) -> Result<Vec<(String, EfsEntry)>> {
         let mut results = Vec::new();
-        self.list_recursive(BTREE_INDEX_REGION_ID, "", &mut results)
+        self.list_full_recursive(BTREE_INDEX_REGION_ID, "", &mut results)
             .await?;
         Ok(results)
     }
 
-    async fn list_dir(&self, path: &str) -> Result<Vec<(String, EfsEntry)>> {
+    async fn list_dir(&self, path: &String) -> Result<Vec<(String, EfsEntry)>> {
         let parts = self.normalize_path(path)?;
         let mut current_region = BTREE_INDEX_REGION_ID;
 
@@ -237,7 +232,7 @@ impl EfsIndex for BtreeIndex {
         Ok(results)
     }
 
-    async fn delete(&self, path: &str) -> Result<()> {
+    async fn delete(&self, path: &String) -> Result<()> {
         let parts = self.normalize_path(path)?;
         if parts.is_empty() {
             return Err(anyhow!("Cannot delete root directory"));
@@ -261,7 +256,7 @@ impl EfsIndex for BtreeIndex {
         Ok(())
     }
 
-    async fn delete_region(&self, path: &str) -> Result<()> {
+    async fn delete_region(&self, path: &String) -> Result<()> {
         let parts = self.normalize_path(path)?;
         let mut current_region = BTREE_INDEX_REGION_ID;
 
@@ -300,11 +295,11 @@ impl EfsIndex for BtreeIndex {
 
 impl BtreeIndex {
     #[async_recursion]
-    async fn list_recursive(
+    async fn list_full_recursive(
         &self,
         region_id: u64,
         prefix: &str,
-        results: &mut Vec<String>,
+        results: &mut Vec<(String, EfsEntry)>,
     ) -> Result<()> {
         let tree = self.get_tree(region_id).await?;
         for (name, entry) in tree.range(..).await.map_err(|e| anyhow!("{}", e))? {
@@ -315,11 +310,22 @@ impl BtreeIndex {
             };
 
             match entry {
-                IndexEntry::File { .. } => {
-                    results.push(full_path);
+                IndexEntry::File {
+                    block_ids,
+                    total_size,
+                } => {
+                    results.push((
+                        full_path,
+                        EfsEntry::File {
+                            block_ids,
+                            total_size,
+                        },
+                    ));
                 }
                 IndexEntry::Directory { region_id } => {
-                    self.list_recursive(region_id, &full_path, results).await?;
+                    results.push((full_path.clone(), EfsEntry::Directory));
+                    self.list_full_recursive(region_id, &full_path, results)
+                        .await?;
                 }
             }
         }
