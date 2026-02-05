@@ -1,4 +1,4 @@
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 use std::fs;
 use tempfile::tempdir;
 
@@ -10,7 +10,7 @@ fn test_cli_short_silo_id() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir(&backend_path)?;
 
     // 1. Add local backend
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("add-local")
@@ -23,7 +23,7 @@ fn test_cli_short_silo_id() -> Result<(), Box<dyn std::error::Error>> {
         .success();
 
     // 2. Initialize silo with a very short ID (4 chars)
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("init")
@@ -34,7 +34,7 @@ fn test_cli_short_silo_id() -> Result<(), Box<dyn std::error::Error>> {
         .success();
 
     // 3. List silo (this was reported failing)
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("ls")

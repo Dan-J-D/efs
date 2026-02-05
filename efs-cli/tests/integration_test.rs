@@ -1,4 +1,4 @@
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
 use std::fs;
 use tempfile::tempdir;
@@ -10,7 +10,7 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
     let backend_path = tmp_dir.path().join("backend");
     fs::create_dir(&backend_path)?;
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("add-local")
@@ -22,7 +22,7 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .success();
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("init")
@@ -35,7 +35,7 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
     let file_to_upload = tmp_dir.path().join("hello.txt");
     fs::write(&file_to_upload, "hello world")?;
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("mkdir")
@@ -46,7 +46,7 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .success();
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("put")
@@ -58,7 +58,7 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .success();
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("ls")
@@ -70,7 +70,7 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(predicates::str::contains("remote/hello.txt"));
 
     let downloaded_file = tmp_dir.path().join("downloaded.txt");
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("get")
@@ -86,7 +86,7 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(content, "hello world");
 
     // Test Delete
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("delete")
@@ -97,7 +97,7 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .success();
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("ls")
@@ -121,7 +121,7 @@ fn test_cli_custom_chunk_size() -> Result<(), Box<dyn std::error::Error>> {
     // Use 64KB chunks
     let chunk_size = 64 * 1024;
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("add-local")
@@ -133,7 +133,7 @@ fn test_cli_custom_chunk_size() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .success();
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("init")
@@ -149,7 +149,7 @@ fn test_cli_custom_chunk_size() -> Result<(), Box<dyn std::error::Error>> {
     let data = vec![0u8; 200 * 1024]; // 200KB, should be ~4 chunks
     fs::write(&file_to_upload, &data)?;
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("put")
@@ -171,7 +171,7 @@ fn test_cli_custom_chunk_size() -> Result<(), Box<dyn std::error::Error>> {
     assert!(entries.len() >= 6);
 
     let downloaded_file = tmp_dir.path().join("downloaded.bin");
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("get")
@@ -196,7 +196,7 @@ fn test_cli_folder_upload() -> Result<(), Box<dyn std::error::Error>> {
     let backend_path = tmp_dir.path().join("backend");
     fs::create_dir(&backend_path)?;
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("add-local")
@@ -208,7 +208,7 @@ fn test_cli_folder_upload() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .success();
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("init")
@@ -224,7 +224,7 @@ fn test_cli_folder_upload() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir(folder_to_upload.join("subfolder"))?;
     fs::write(folder_to_upload.join("subfolder/file2.txt"), "content2")?;
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("put")
@@ -236,7 +236,7 @@ fn test_cli_folder_upload() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .success();
 
-    Command::cargo_bin("efs-cli")?
+    cargo_bin_cmd!("efs-cli")
         .arg("--config")
         .arg(&config_path)
         .arg("ls")
