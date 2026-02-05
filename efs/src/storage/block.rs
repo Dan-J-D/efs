@@ -4,6 +4,7 @@ use crate::storage::{RegionId, StorageBackend, ALLOCATOR_STATE_BLOCK_ID, METADAT
 use anyhow::{Context, Result};
 use blake3;
 use bptree::storage::BlockId;
+use futures::future::join_all;
 use hex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -220,15 +221,33 @@ impl EfsBlockStorage {
         region_id: RegionId,
         ids: Vec<BlockId>,
     ) -> Result<()> {
-        for id in &ids {
-            let name = self.block_name(region_id, *id);
-
-            self.backend
-                .delete(&name)
-                .await
-                .context("Failed to delete block from backend")?;
+        let mut delete_futures = Vec::new();
+        for id in ids {
+            let name = self.block_name(region_id, id);
+            let backend = self.backend.clone();
+            delete_futures.push(async move {
+                backend.delete(&name).await.context(format!(
+                    "Failed to delete block {} from backend (name: {})",
+                    id, name
+                ))
+            });
         }
 
-        Ok(())
+        let results = join_all(delete_futures).await;
+        let mut errors = Vec::new();
+        for res in results {
+            if let Err(e) = res {
+                errors.push(e);
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to deallocate one or more blocks: {:?}",
+                errors
+            ))
+        }
     }
 }

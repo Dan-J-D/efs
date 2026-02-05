@@ -250,12 +250,10 @@ impl Efs {
             .await
         {
             // Try to cleanup allocated blocks on index failure to prevent leakage
-            for id in block_ids {
-                let _ = self
-                    .storage_adapter
-                    .deallocate_block(FILE_DATA_REGION_ID, id)
-                    .await;
-            }
+            let _ = self
+                .storage_adapter
+                .deallocate_blocks(FILE_DATA_REGION_ID, block_ids)
+                .await;
             return Err(e).context("Failed to insert file into index; cleaned up allocated blocks");
         }
 

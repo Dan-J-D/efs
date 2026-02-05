@@ -2,6 +2,7 @@ use crate::chunk::{Chunker, UniformEnvelope};
 use crate::crypto::Cipher;
 use crate::storage::{RegionId, StorageBackend, ALLOCATOR_STATE_BLOCK_ID, METADATA_REGION_ID};
 use anyhow::Result;
+use futures::future::join_all;
 use async_trait::async_trait;
 use bptree::storage::{BlockId, BlockStorage, StorageError};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -145,10 +146,15 @@ impl BlockStorage for BPTreeStorage {
     }
 
     async fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
-        for id in &ids {
-            let name = self.block_name(*id);
-            let _ = self.backend.delete(&name).await;
+        let mut delete_futures = Vec::new();
+        for id in ids {
+            let name = self.block_name(id);
+            let backend = self.backend.clone();
+            delete_futures.push(async move {
+                let _ = backend.delete(&name).await;
+            });
         }
+        join_all(delete_futures).await;
         Ok(())
     }
 
