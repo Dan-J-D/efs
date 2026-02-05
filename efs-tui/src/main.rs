@@ -1,28 +1,28 @@
-use tracing::info;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use efs::crypto::{Aes256GcmCipher, Blake3Hasher, Argon2Kdf};
+use efs::crypto::{Aes256GcmCipher, Argon2Kdf, Blake3Hasher};
 use efs::mirror::MirrorOrchestrator;
 use efs::silo::SiloManager;
 use efs::storage::local::LocalBackend;
 use efs::storage::s3::S3Backend;
 use efs::{Efs, StorageBackend};
-use secrecy::{ExposeSecret, SecretBox, SecretString};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame, Terminal,
 };
+use secrecy::{ExposeSecret, SecretBox, SecretString};
 use std::collections::HashSet;
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tracing::info;
 
 mod config;
 use config::{BackendConfig, BackendType, Config};
@@ -190,7 +190,11 @@ impl App {
 
     fn save_config(&self) -> Result<()> {
         if let Some(cfg) = &self.config {
-            config::save_config(&self.config_path, cfg, self.password.expose_secret().as_bytes())?;
+            config::save_config(
+                &self.config_path,
+                cfg,
+                self.password.expose_secret().as_bytes(),
+            )?;
         }
         Ok(())
     }
@@ -406,6 +410,9 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
             .unwrap_or_else(|| Duration::from_secs(0));
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Release {
+                    continue;
+                }
                 match &mut app.state {
                     AppState::Login => match key.code {
                         KeyCode::Enter => {

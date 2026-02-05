@@ -106,7 +106,8 @@ pub fn save_config<P: AsRef<Path>>(path: P, config: &Config, password: &[u8]) ->
     let mut key = [0u8; 32];
     Argon2Kdf::default().derive(password, b"efs_config_salt", &mut key)?;
 
-    let (ciphertext, nonce, tag) = Aes256GcmCipher::default().encrypt(&key, b"config", &plaintext)?;
+    let (ciphertext, nonce, tag) =
+        Aes256GcmCipher::default().encrypt(&key, b"config", &plaintext)?;
 
     let encrypted = EncryptedConfig {
         ciphertext,
