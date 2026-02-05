@@ -1,5 +1,5 @@
 use crate::index::BPTreeStorage;
-use crate::storage::BTREE_REGION_ID;
+use crate::storage::BTREE_INDEX_REGION_ID;
 use crate::{EfsEntry, EfsIndex};
 use anyhow::{anyhow, Result};
 use async_recursion::async_recursion;
@@ -57,7 +57,7 @@ impl EfsIndex for BtreeIndex {
     async fn insert(&self, path: &str, block_ids: Vec<u64>, total_size: u64) -> Result<()> {
         let parts = self.normalize_path(path)?;
 
-        let mut current_region = BTREE_REGION_ID;
+        let mut current_region = BTREE_INDEX_REGION_ID;
 
         for part in parts.iter().take(parts.len() - 1) {
             let mut tree = self.get_tree(current_region).await?;
@@ -104,7 +104,7 @@ impl EfsIndex for BtreeIndex {
             return Ok(());
         }
 
-        let mut current_region = BTREE_REGION_ID;
+        let mut current_region = BTREE_INDEX_REGION_ID;
 
         for part in parts {
             let mut tree = self.get_tree(current_region).await?;
@@ -154,7 +154,7 @@ impl EfsIndex for BtreeIndex {
             return Ok(Some(EfsEntry::Directory));
         }
 
-        let mut current_region = BTREE_REGION_ID;
+        let mut current_region = BTREE_INDEX_REGION_ID;
         for i in 0..parts.len() {
             let tree = self.get_tree(current_region).await?;
             let part = &parts[i];
@@ -190,14 +190,14 @@ impl EfsIndex for BtreeIndex {
 
     async fn list(&self) -> Result<Vec<String>> {
         let mut results = Vec::new();
-        self.list_recursive(BTREE_REGION_ID, "", &mut results)
+        self.list_recursive(BTREE_INDEX_REGION_ID, "", &mut results)
             .await?;
         Ok(results)
     }
 
     async fn list_dir(&self, path: &str) -> Result<Vec<(String, EfsEntry)>> {
         let parts = self.normalize_path(path)?;
-        let mut current_region = BTREE_REGION_ID;
+        let mut current_region = BTREE_INDEX_REGION_ID;
 
         if !parts.is_empty() {
             for part in parts {
@@ -235,7 +235,7 @@ impl EfsIndex for BtreeIndex {
             return Err(anyhow!("Cannot delete root directory"));
         }
 
-        let mut current_region = BTREE_REGION_ID;
+        let mut current_region = BTREE_INDEX_REGION_ID;
         for part in parts.iter().take(parts.len() - 1) {
             let tree = self.get_tree(current_region).await?;
             match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
@@ -255,7 +255,7 @@ impl EfsIndex for BtreeIndex {
 
     async fn delete_region(&self, path: &str) -> Result<()> {
         let parts = self.normalize_path(path)?;
-        let mut current_region = BTREE_REGION_ID;
+        let mut current_region = BTREE_INDEX_REGION_ID;
 
         // Traverse to find the region_id of the directory at path
         for part in &parts {

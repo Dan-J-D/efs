@@ -1,7 +1,7 @@
 use efs::crypto::standard::StandardCipher;
 use efs::index::{BPTreeStorage, BtreeIndex};
 use efs::storage::local::LocalBackend;
-use efs::{Efs, EfsBlockStorage, BTREE_REGION_ID, DEFAULT_CHUNK_SIZE};
+use efs::{Efs, EfsBlockStorage, BTREE_INDEX_REGION_ID, DEFAULT_CHUNK_SIZE};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -26,7 +26,8 @@ async fn test_efs_builder_custom_index() {
         key.clone(),
         Arc::new(AtomicU64::new(next_id)),
         chunk_size,
-        BTREE_REGION_ID,
+        BTREE_INDEX_REGION_ID,
+        storage_adapter.allocation_lock(),
     );
     let btree_index = Arc::new(BtreeIndex::new(btree_storage).unwrap());
 

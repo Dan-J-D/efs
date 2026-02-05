@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use bptree::storage::{BlockId, BlockStorage, StorageError};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct BPTreeStorage {
@@ -15,6 +16,7 @@ pub struct BPTreeStorage {
     pub next_id: Arc<AtomicU64>,
     pub chunk_size: usize,
     pub region_id: RegionId,
+    pub allocation_lock: Arc<Mutex<()>>,
 }
 
 impl BPTreeStorage {
@@ -25,6 +27,7 @@ impl BPTreeStorage {
         next_id: Arc<AtomicU64>,
         chunk_size: usize,
         region_id: RegionId,
+        allocation_lock: Arc<Mutex<()>>,
     ) -> Self {
         Self {
             backend,
@@ -33,6 +36,7 @@ impl BPTreeStorage {
             next_id,
             chunk_size,
             region_id,
+            allocation_lock,
         }
     }
 
@@ -126,10 +130,11 @@ impl BlockStorage for BPTreeStorage {
     }
 
     async fn allocate_block(&mut self) -> Result<BlockId, Self::Error> {
-        let current_id = self.next_id.load(Ordering::SeqCst);
+        let lock = self.allocation_lock.clone();
+        let _guard = lock.lock().await;
+        let current_id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let new_next_id = current_id + 1;
         self.persist_next_id(new_next_id).await?;
-        self.next_id.store(new_next_id, Ordering::SeqCst);
         Ok(current_id)
     }
 

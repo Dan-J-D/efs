@@ -4,7 +4,7 @@ use efs::storage::local::LocalBackend;
 use efs::storage::lru::LruBackend;
 use efs::storage::memory::MemoryBackend;
 use efs::storage::s3::S3Backend;
-use efs::{Efs, BTREE_REGION_ID, DEFAULT_CHUNK_SIZE};
+use efs::{Efs, BTREE_INDEX_REGION_ID, DEFAULT_CHUNK_SIZE};
 use object_store::memory::InMemory;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -52,7 +52,8 @@ async fn test_local_btree_config() {
         key.clone(),
         next_id,
         DEFAULT_CHUNK_SIZE,
-        BTREE_REGION_ID,
+        BTREE_INDEX_REGION_ID,
+        efs_temp.storage_adapter.allocation_lock(),
     );
     let index = Arc::new(BtreeIndex::new(index_storage).unwrap());
 

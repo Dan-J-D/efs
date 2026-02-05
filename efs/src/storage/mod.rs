@@ -18,8 +18,8 @@ pub const ALLOCATOR_STATE_BLOCK_ID: BlockId = 0;
 pub const FREE_LIST_BLOCK_ID: BlockId = 1;
 
 pub const METADATA_REGION_ID: RegionId = 0;
-pub const BTREE_REGION_ID: RegionId = 2;
 pub const FILE_DATA_REGION_ID: RegionId = 1;
+pub const BTREE_INDEX_REGION_ID: RegionId = 2;
 
 pub mod block;
 pub mod cache;

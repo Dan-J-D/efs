@@ -7,6 +7,7 @@ use bptree::storage::BlockId;
 use hex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct EfsBlockStorage {
     backend: Arc<dyn StorageBackend>,
@@ -14,6 +15,7 @@ pub struct EfsBlockStorage {
     key: Vec<u8>,
     next_id: Arc<AtomicU64>,
     chunk_size: usize,
+    allocation_lock: Arc<Mutex<()>>,
 }
 
 impl EfsBlockStorage {
@@ -29,6 +31,25 @@ impl EfsBlockStorage {
             key,
             next_id: Arc::new(AtomicU64::new(10)), // Start from 10 to avoid collisions with reserved regions (0, 1, 2)
             chunk_size,
+            allocation_lock: Arc::new(Mutex::new(())),
+        }
+    }
+
+    pub fn new_with_shared_state(
+        backend: Arc<dyn StorageBackend>,
+        cipher: Arc<dyn Cipher>,
+        key: Vec<u8>,
+        chunk_size: usize,
+        next_id: Arc<AtomicU64>,
+        allocation_lock: Arc<Mutex<()>>,
+    ) -> Self {
+        Self {
+            backend,
+            cipher,
+            key,
+            next_id,
+            chunk_size,
+            allocation_lock,
         }
     }
 
@@ -43,6 +64,10 @@ impl EfsBlockStorage {
 
     pub fn next_id(&self) -> Arc<AtomicU64> {
         self.next_id.clone()
+    }
+
+    pub fn allocation_lock(&self) -> Arc<Mutex<()>> {
+        self.allocation_lock.clone()
     }
 
     pub fn set_next_id(&self, id: u64) {
@@ -156,20 +181,19 @@ impl EfsBlockStorage {
         _region_id: RegionId,
         count: usize,
     ) -> Result<Vec<BlockId>> {
-        let mut ids = Vec::with_capacity(count);
-
-        let first_id = self.next_id.load(Ordering::SeqCst);
+        let lock = self.allocation_lock.clone();
+        let _guard = lock.lock().await;
+        
+        let first_id = self.next_id.fetch_add(count as u64, Ordering::SeqCst);
         let new_next_id = first_id + count as u64;
 
         self.persist_next_id(new_next_id)
             .await
             .context("Failed to persist next_id before allocation")?;
 
-        self.next_id.store(new_next_id, Ordering::SeqCst);
-
+        let mut ids = Vec::with_capacity(count);
         for i in 0..count {
-            let id = first_id + i as u64;
-            ids.push(id);
+            ids.push(first_id + i as u64);
         }
 
         Ok(ids)

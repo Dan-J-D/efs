@@ -11,7 +11,7 @@ pub use crate::crypto::{Cipher, Hasher, Kdf};
 pub use crate::mirror::MirrorOrchestrator;
 pub use crate::silo::{SiloConfig, SiloManager};
 pub use crate::storage::block::EfsBlockStorage;
-pub use crate::storage::{RegionId, StorageBackend, BTREE_REGION_ID, FILE_DATA_REGION_ID};
+pub use crate::storage::{RegionId, StorageBackend, BTREE_INDEX_REGION_ID, FILE_DATA_REGION_ID};
 
 use anyhow::{anyhow, Context, Result};
 use async_recursion::async_recursion;
@@ -129,7 +129,8 @@ impl EfsBuilder {
                 self.key.clone(),
                 storage_adapter.next_id(),
                 self.chunk_size,
-                BTREE_REGION_ID,
+                BTREE_INDEX_REGION_ID,
+                storage_adapter.allocation_lock(),
             );
             Arc::new(
                 crate::index::BtreeIndex::new(index_storage)

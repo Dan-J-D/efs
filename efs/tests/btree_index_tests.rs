@@ -1,7 +1,7 @@
 use efs::crypto::standard::StandardCipher;
 use efs::index::{BPTreeStorage, BtreeIndex};
 use efs::storage::local::LocalBackend;
-use efs::{EfsIndex, BTREE_REGION_ID};
+use efs::{EfsIndex, BTREE_INDEX_REGION_ID};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -22,7 +22,8 @@ async fn test_btree_index_hierarchical() {
         key.clone(),
         next_id.clone(),
         chunk_size,
-        BTREE_REGION_ID,
+        BTREE_INDEX_REGION_ID,
+        Arc::new(tokio::sync::Mutex::new(())),
     );
 
     let index = BtreeIndex::new(storage).unwrap();
