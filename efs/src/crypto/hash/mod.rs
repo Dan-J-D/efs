@@ -7,6 +7,10 @@ use sha3::Sha3_256;
 pub struct Blake3Hasher {}
 
 impl Hasher for Blake3Hasher {
+    fn name(&self) -> &'static str {
+        "blake3"
+    }
+
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         blake3::hash(data).as_bytes().to_vec()
     }
@@ -16,6 +20,10 @@ impl Hasher for Blake3Hasher {
 pub struct Sha3_256Hasher {}
 
 impl Hasher for Sha3_256Hasher {
+    fn name(&self) -> &'static str {
+        "sha3-256"
+    }
+
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         let mut hasher = Sha3_256::new();
         hasher.update(data);
@@ -27,6 +35,10 @@ impl Hasher for Sha3_256Hasher {
 pub struct Sha256Hasher {}
 
 impl Hasher for Sha256Hasher {
+    fn name(&self) -> &'static str {
+        "sha256"
+    }
+
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         let mut hasher = Sha256::new();
         hasher.update(data);
@@ -38,6 +50,10 @@ impl Hasher for Sha256Hasher {
 pub struct Sha512Hasher {}
 
 impl Hasher for Sha512Hasher {
+    fn name(&self) -> &'static str {
+        "sha512"
+    }
+
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         let mut hasher = Sha512::new();
         hasher.update(data);
@@ -49,6 +65,10 @@ impl Hasher for Sha512Hasher {
 pub struct Blake2b512Hasher {}
 
 impl Hasher for Blake2b512Hasher {
+    fn name(&self) -> &'static str {
+        "blake2b-512"
+    }
+
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         let mut hasher = Blake2b512::new();
         hasher.update(data);
@@ -67,6 +87,10 @@ impl Default for Blake2bHasher {
 }
 
 impl Hasher for Blake2bHasher {
+    fn name(&self) -> &'static str {
+        "blake2b-var"
+    }
+
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         use blake2::digest::{Update, VariableOutput};
         use blake2::Blake2bVar;

@@ -31,9 +31,20 @@ impl SiloManager {
 
     pub fn derive_root_key(&self, password: &secrecy::SecretString, silo_id: &str) -> Result<SecretBox<Key32>> {
         let mut root_key_bytes = [0u8; 32];
+        let password_bytes = password.expose_secret().as_bytes();
+
+        let mut context_data = password_bytes.to_vec();
+        context_data.extend_from_slice(self.cipher.name().as_bytes());
+        context_data.extend_from_slice(self.hasher.name().as_bytes());
+        context_data.extend_from_slice(self.kdf.name().as_bytes());
+        let context_hash = self.hasher.hash(&context_data);
+
+        let mut extended_password = password_bytes.to_vec();
+        extended_password.extend_from_slice(&context_hash);
+
         let salt = self.hasher.hash(silo_id.as_bytes());
         self.kdf
-            .derive(password.expose_secret().as_bytes(), &salt, &mut root_key_bytes)
+            .derive(&extended_password, &salt, &mut root_key_bytes)
             .context("Failed to derive root key")?;
         Ok(SecretBox::new(Box::new(Key32(root_key_bytes))))
     }

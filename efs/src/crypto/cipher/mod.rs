@@ -11,6 +11,10 @@ use rand::{thread_rng, RngCore};
 pub struct Aes256GcmCipher {}
 
 impl Cipher for Aes256GcmCipher {
+    fn name(&self) -> &'static str {
+        "aes-256-gcm"
+    }
+
     fn nonce_size(&self) -> usize {
         12
     }
@@ -79,6 +83,10 @@ impl Cipher for Aes256GcmCipher {
 pub struct ChaCha20Poly1305Cipher {}
 
 impl Cipher for ChaCha20Poly1305Cipher {
+    fn name(&self) -> &'static str {
+        "chacha20-poly1305"
+    }
+
     fn nonce_size(&self) -> usize {
         12
     }
@@ -147,6 +155,10 @@ impl Cipher for ChaCha20Poly1305Cipher {
 pub struct XChaCha20Poly1305Cipher {}
 
 impl Cipher for XChaCha20Poly1305Cipher {
+    fn name(&self) -> &'static str {
+        "xchacha20-poly1305"
+    }
+
     fn nonce_size(&self) -> usize {
         24
     }

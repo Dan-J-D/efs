@@ -16,6 +16,7 @@ impl AsRef<[u8]> for Key32 {
 }
 
 pub trait Cipher: Send + Sync {
+    fn name(&self) -> &'static str;
     fn nonce_size(&self) -> usize;
     fn tag_size(&self) -> usize;
     fn encrypt(
@@ -35,10 +36,12 @@ pub trait Cipher: Send + Sync {
 }
 
 pub trait Kdf: Send + Sync {
+    fn name(&self) -> &'static str;
     fn derive(&self, password: &[u8], salt: &[u8], output: &mut [u8]) -> Result<()>;
 }
 
 pub trait Hasher: Send + Sync {
+    fn name(&self) -> &'static str;
     fn hash(&self, data: &[u8]) -> Vec<u8>;
 }
 

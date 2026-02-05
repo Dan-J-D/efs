@@ -22,6 +22,10 @@ impl Default for Argon2Kdf {
 }
 
 impl Kdf for Argon2Kdf {
+    fn name(&self) -> &'static str {
+        "argon2id"
+    }
+
     fn derive(&self, password: &[u8], salt: &[u8], output: &mut [u8]) -> Result<()> {
         let params = argon2::ParamsBuilder::new()
             .m_cost(self.m_cost)
@@ -49,6 +53,10 @@ impl Default for Pbkdf2Sha256Kdf {
 }
 
 impl Kdf for Pbkdf2Sha256Kdf {
+    fn name(&self) -> &'static str {
+        "pbkdf2-sha256"
+    }
+
     fn derive(&self, password: &[u8], salt: &[u8], output: &mut [u8]) -> Result<()> {
         pbkdf2::<Hmac<Sha256>>(password, salt, self.iterations, output)
             .map_err(|e| anyhow!("PBKDF2 failure: {}", e))

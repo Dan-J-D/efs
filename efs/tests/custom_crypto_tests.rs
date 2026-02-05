@@ -7,6 +7,10 @@ use std::sync::Arc;
 
 struct MockKdf;
 impl Kdf for MockKdf {
+    fn name(&self) -> &'static str {
+        "mock-kdf"
+    }
+
     fn derive(&self, _password: &[u8], _salt: &[u8], output: &mut [u8]) -> Result<()> {
         // Just fill with a dummy value for testing
         for i in 0..output.len() {
@@ -18,6 +22,10 @@ impl Kdf for MockKdf {
 
 struct MockHasher;
 impl Hasher for MockHasher {
+    fn name(&self) -> &'static str {
+        "mock-hasher"
+    }
+
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         // Return a simple XOR "hash" for testing
         let mut result = vec![0u8; 32];
