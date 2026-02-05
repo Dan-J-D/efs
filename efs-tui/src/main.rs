@@ -1,3 +1,4 @@
+use tracing::info;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use crossterm::{
@@ -32,6 +33,14 @@ struct Args {
     /// Path to the configuration file
     #[arg(short, long, default_value = "efs_config.bin")]
     config: String,
+
+    /// Log level (trace, debug, info, warn, error)
+    #[arg(long, default_value = "info")]
+    log_level: String,
+
+    /// Directory to store logs
+    #[arg(long, default_value = ".")]
+    log_dir: String,
 }
 
 enum AppState {
@@ -118,6 +127,7 @@ impl App {
     async fn login(&mut self) -> Result<()> {
         let cfg = config::load_config(&self.config_path, self.password.expose_secret().as_bytes())?;
         self.config = Some(cfg.clone());
+        info!("Config loaded from {}", self.config_path);
 
         if let Some(first_silo) = cfg.known_silos.first() {
             self.silo_id = first_silo.clone();
@@ -152,6 +162,7 @@ impl App {
             Box::new(Blake3Hasher::default()),
         );
 
+        info!("Loading silo: {}", self.silo_id);
         let silo_cfg = manager
             .load_silo(storage.as_ref(), &self.password, &self.silo_id)
             .await?;
@@ -340,14 +351,25 @@ async fn get_storage(cfg: &Config) -> Result<Arc<dyn StorageBackend>> {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
-    let file_appender = tracing_appender::rolling::never(".", "efs-tui.log");
+    let args = Args::parse();
+
+    let log_dir = std::path::Path::new(&args.log_dir);
+    if !log_dir.exists() {
+        std::fs::create_dir_all(log_dir)?;
+    }
+
+    let file_appender = tracing_appender::rolling::never(&args.log_dir, "efs-tui.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&args.log_level));
+
     tracing_subscriber::fmt()
         .with_writer(non_blocking)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(env_filter)
         .init();
 
-    let args = Args::parse();
+    info!("Starting EFS TUI");
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -764,9 +786,11 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                             let lp = local_path.clone();
                             let rp = remote_path.clone();
                             if let Some(efs) = &app.efs {
+                                info!("Uploading {} to {}", lp, rp);
                                 if let Err(e) = efs.put_recursive(&lp, &rp).await {
                                     app.state = AppState::Error(e.to_string());
                                 } else {
+                                    info!("Upload complete");
                                     let _ = app.refresh_files().await;
                                     app.state = AppState::Main;
                                 }
@@ -867,9 +891,11 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                             terminal.draw(|f| ui(f, app))?;
 
                             if let Some(efs) = &app.efs {
+                                info!("Deleting {}", p);
                                 if let Err(e) = efs.delete_recursive(&p).await {
                                     app.state = AppState::Error(e.to_string());
                                 } else {
+                                    info!("Delete complete");
                                     let _ = app.refresh_files().await;
                                     app.state = AppState::Main;
                                 }
