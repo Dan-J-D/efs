@@ -5,6 +5,7 @@ use futures::StreamExt;
 use object_store::{memory::InMemory, ObjectStore};
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct MemoryBackend {
     store: Arc<dyn ObjectStore>,
 }
