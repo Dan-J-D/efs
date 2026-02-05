@@ -20,7 +20,9 @@ impl MirrorOrchestrator {
 
 #[async_trait]
 impl StorageBackend for MirrorOrchestrator {
+    #[tracing::instrument(skip(self, data))]
     async fn put(&self, name: &str, data: Vec<u8>) -> Result<()> {
+        tracing::debug!("Mirror put: {}", name);
         let futures: Vec<_> = self
             .backends
             .iter()
@@ -29,6 +31,7 @@ impl StorageBackend for MirrorOrchestrator {
         let results: Vec<Result<()>> = join_all(futures).await;
 
         let success_count = results.iter().filter(|r| r.is_ok()).count();
+        tracing::debug!("Mirror put: {}/{} successes", success_count, self.backends.len());
         if success_count >= self.majority() {
             Ok(())
         } else {
@@ -40,7 +43,9 @@ impl StorageBackend for MirrorOrchestrator {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     async fn get(&self, name: &str) -> Result<Vec<u8>> {
+        tracing::debug!("Mirror get: {}", name);
         let futures: Vec<_> = self.backends.iter().map(|b| b.get(name)).collect();
         let results: Vec<Result<Vec<u8>>> = join_all(futures).await;
 
@@ -60,9 +65,9 @@ impl StorageBackend for MirrorOrchestrator {
         }
 
         let mut consensus = None;
-        for (data, count) in counts {
-            if count >= self.majority() {
-                consensus = Some(data);
+        for (data, count) in &counts {
+            if *count >= self.majority() {
+                consensus = Some(data.clone());
                 break;
             }
         }
@@ -77,6 +82,7 @@ impl StorageBackend for MirrorOrchestrator {
                             Err(_) => true,
                         };
                         if needs_repair {
+                            tracing::info!("Repairing stale or missing data for {} on backend {}", name, i);
                             let _ = self.backends[i].put(name, data.clone()).await;
                         }
                     }
@@ -86,6 +92,7 @@ impl StorageBackend for MirrorOrchestrator {
                     // Consensus is NotFound. Repair backends that still have the data.
                     for (i, res) in results.iter().enumerate() {
                         if res.is_ok() {
+                            tracing::info!("Removing ghost data for {} on backend {}", name, i);
                             let _ = self.backends[i].delete(name).await;
                         }
                     }
@@ -101,6 +108,8 @@ impl StorageBackend for MirrorOrchestrator {
                 }
             }
         }
+
+        tracing::warn!("No consensus for {} among {} backends. Counts: {:?}", name, self.backends.len(), counts);
 
         // No consensus. Return the first non-NotFound error or a generic error.
         for res in results {
@@ -120,11 +129,14 @@ impl StorageBackend for MirrorOrchestrator {
         ))
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete(&self, name: &str) -> Result<()> {
+        tracing::debug!("Mirror delete: {}", name);
         let futures: Vec<_> = self.backends.iter().map(|b| b.delete(name)).collect();
         let results: Vec<Result<()>> = join_all(futures).await;
 
         let success_count = results.iter().filter(|r| r.is_ok()).count();
+        tracing::debug!("Mirror delete: {}/{} successes", success_count, self.backends.len());
         if success_count >= self.majority() {
             Ok(())
         } else {
@@ -136,7 +148,9 @@ impl StorageBackend for MirrorOrchestrator {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     async fn list(&self) -> Result<Vec<String>> {
+        tracing::debug!("Mirror list");
         let futures: Vec<_> = self.backends.iter().map(|b| b.list()).collect();
         let results: Vec<Result<Vec<String>>> = join_all(futures).await;
 

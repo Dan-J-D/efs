@@ -29,7 +29,9 @@ impl SiloManager {
         }
     }
 
+    #[tracing::instrument(skip(self, password))]
     pub fn derive_root_key(&self, password: &secrecy::SecretString, silo_id: &str) -> Result<SecretBox<Key32>> {
+        tracing::debug!("Deriving root key for silo: {}", silo_id);
         let mut root_key_bytes = [0u8; 32];
         let password_bytes = password.expose_secret().as_bytes();
 
@@ -54,6 +56,7 @@ impl SiloManager {
         hex::encode(hash)
     }
 
+    #[tracing::instrument(skip(self, storage, password, data_key))]
     pub async fn initialize_silo(
         &self,
         storage: &dyn StorageBackend,
@@ -62,6 +65,7 @@ impl SiloManager {
         chunk_size: usize,
         data_key: SecretBox<Key32>,
     ) -> Result<()> {
+        tracing::info!("Initializing new silo: {}", silo_id);
         let root_key = self
             .derive_root_key(password, silo_id)
             .context("Failed to derive root key for initialization")?;
@@ -99,12 +103,14 @@ impl SiloManager {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, storage, password))]
     pub async fn load_silo(
         &self,
         storage: &dyn StorageBackend,
         password: &secrecy::SecretString,
         silo_id: &str,
     ) -> Result<SiloConfig> {
+        tracing::debug!("Loading silo: {}", silo_id);
         let root_key = self
             .derive_root_key(password, silo_id)
             .context("Failed to derive root key for loading")?;

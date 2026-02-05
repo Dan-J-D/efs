@@ -90,7 +90,9 @@ impl EfsBlockStorage {
         self.persisted_id.store(id, Ordering::SeqCst);
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn read_block(&self, region_id: RegionId, id: BlockId) -> Result<Vec<u8>> {
+        tracing::debug!("Reading block {} in region {}", id, region_id);
         let name = self.block_name(region_id, id);
 
         let result = self.backend.get(&name).await;
@@ -117,12 +119,14 @@ impl EfsBlockStorage {
         Ok(plaintext)
     }
 
+    #[tracing::instrument(skip(self, data))]
     pub async fn write_block(
         &self,
         region_id: RegionId,
         id: BlockId,
         data: &[u8],
     ) -> Result<()> {
+        tracing::debug!("Writing block {} in region {}", id, region_id);
         let name = self.block_name(region_id, id);
 
         let padded_data = Chunker::pad(
@@ -203,6 +207,7 @@ impl EfsBlockStorage {
         _region_id: RegionId,
         count: usize,
     ) -> Result<Vec<BlockId>> {
+        tracing::debug!("Allocating {} blocks", count);
         let lock = self.allocation_lock.clone();
         let _guard = lock.lock().await;
 
@@ -244,11 +249,13 @@ impl EfsBlockStorage {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn deallocate_blocks(
         &self,
         region_id: RegionId,
         ids: Vec<BlockId>,
     ) -> Result<()> {
+        tracing::debug!("Deallocating {} blocks in region {}", ids.len(), region_id);
         let mut delete_futures = Vec::new();
         for id in ids {
             let name = self.block_name(region_id, id);

@@ -22,7 +22,9 @@ impl LocalBackend {
 
 #[async_trait]
 impl StorageBackend for LocalBackend {
+    #[tracing::instrument(skip(self, data))]
     async fn put(&self, name: &str, data: Vec<u8>) -> Result<()> {
+        tracing::debug!("Local put: {}", name);
         let path = object_store::path::Path::from(name);
         self.store
             .put(&path, data.into())
@@ -31,7 +33,9 @@ impl StorageBackend for LocalBackend {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn get(&self, name: &str) -> Result<Vec<u8>> {
+        tracing::debug!("Local get: {}", name);
         let path = object_store::path::Path::from(name);
         let result = self
             .store
@@ -45,7 +49,9 @@ impl StorageBackend for LocalBackend {
         Ok(bytes.to_vec())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete(&self, name: &str) -> Result<()> {
+        tracing::debug!("Local delete: {}", name);
         let path = object_store::path::Path::from(name);
         self.store
             .delete(&path)
@@ -54,7 +60,9 @@ impl StorageBackend for LocalBackend {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn list(&self) -> Result<Vec<String>> {
+        tracing::debug!("Local list");
         let mut stream = self.store.list(None);
         let mut keys = Vec::new();
         while let Some(meta) = stream.next().await {

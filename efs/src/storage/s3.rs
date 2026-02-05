@@ -16,7 +16,9 @@ impl S3Backend {
 
 #[async_trait]
 impl StorageBackend for S3Backend {
+    #[tracing::instrument(skip(self, data))]
     async fn put(&self, name: &str, data: Vec<u8>) -> Result<()> {
+        tracing::debug!("S3 put: {}", name);
         let path = Path::from(name);
         self.store
             .put(&path, data.into())
@@ -25,7 +27,9 @@ impl StorageBackend for S3Backend {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn get(&self, name: &str) -> Result<Vec<u8>> {
+        tracing::debug!("S3 get: {}", name);
         let path = Path::from(name);
         let result = self
             .store
@@ -41,7 +45,9 @@ impl StorageBackend for S3Backend {
         Ok(bytes.to_vec())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete(&self, name: &str) -> Result<()> {
+        tracing::debug!("S3 delete: {}", name);
         let path = Path::from(name);
         self.store
             .delete(&path)
@@ -50,7 +56,9 @@ impl StorageBackend for S3Backend {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn list(&self) -> Result<Vec<String>> {
+        tracing::debug!("S3 list");
         use futures::StreamExt;
         let mut stream = self.store.list(None);
         let mut keys = Vec::new();

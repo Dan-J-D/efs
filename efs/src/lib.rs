@@ -477,8 +477,10 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn get(&self, path: &str) -> Result<Vec<u8>> {
         let path = crate::path::normalize_path(path)?;
+        tracing::debug!("Reading file from {}", path);
         let entry = self
             .index
             .get(&path)
@@ -551,7 +553,9 @@ where
         Ok(data)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn list(&self) -> Result<Vec<String>> {
+        tracing::debug!("Listing all files");
         let entries = self.index.list().await?;
         Ok(entries
             .into_iter()
@@ -562,13 +566,17 @@ where
             .collect())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn list_dir(&self, path: &str) -> Result<Vec<(String, EfsEntry)>> {
         let path = crate::path::normalize_path(path)?;
+        tracing::debug!("Listing directory: {}", path);
         self.index.list_dir(&path).await
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn delete(&self, path: &str) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
+        tracing::info!("Deleting {}", path);
         let entry = self
             .index
             .get(&path)
@@ -607,8 +615,10 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn delete_recursive(&self, path: &str) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
+        tracing::info!("Deleting recursive: {}", path);
         let entry = self
             .index
             .get(&path)
