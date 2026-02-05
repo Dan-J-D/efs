@@ -24,7 +24,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum EfsEntry {
     File {
-        block_ids: Vec<u64>,
+        file_id: u64,
         total_size: u64,
     },
     Directory,
@@ -175,13 +175,13 @@ impl Efs {
             self.mkdir_p(parent).await?;
         }
 
-        let mut old_block_ids = None;
+        let mut old_file_info = None;
         // Check if entry already exists to prevent leaks on overwrite
         if let Some(entry) = self.index.get(&path).await? {
             match entry {
-                EfsEntry::File { block_ids, .. } => {
+                EfsEntry::File { file_id, total_size } => {
                     // Remember old blocks to deallocate them after successful overwrite
-                    old_block_ids = Some(block_ids);
+                    old_file_info = Some((file_id, total_size));
                 }
                 EfsEntry::Directory => {
                     return Err(anyhow!(
@@ -252,7 +252,7 @@ impl Efs {
             .put(
                 &path,
                 EfsEntry::File {
-                    block_ids: block_ids.clone(),
+                    file_id: block_ids.first().cloned().unwrap_or(0),
                     total_size,
                 },
             )
@@ -267,7 +267,10 @@ impl Efs {
         }
 
         // Successfully updated index, now deallocate old blocks if this was an overwrite
-        if let Some(old_ids) = old_block_ids {
+        if let Some((old_id, old_size)) = old_file_info {
+            let payload_size = UniformEnvelope::payload_size(self.chunk_size);
+            let num_blocks = (old_size as usize + payload_size - 1) / payload_size;
+            let old_ids: Vec<u64> = (old_id..old_id + num_blocks as u64).collect();
             let _ = self
                 .storage_adapter
                 .deallocate_blocks(FILE_DATA_REGION_ID, old_ids)
@@ -320,13 +323,17 @@ impl Efs {
             .context("Failed to query index")?
             .ok_or_else(|| anyhow!("File not found: {}", path))?;
 
-        let (block_ids, total_size) = match entry {
+        let (file_id, total_size) = match entry {
             EfsEntry::File {
-                block_ids,
+                file_id,
                 total_size,
-            } => (block_ids, total_size),
+            } => (file_id, total_size),
             EfsEntry::Directory => return Err(anyhow!("Path is a directory")),
         };
+
+        let payload_size = UniformEnvelope::payload_size(self.chunk_size);
+        let num_blocks = (total_size as usize + payload_size - 1) / payload_size;
+        let block_ids: Vec<u64> = (file_id..file_id + num_blocks as u64).collect();
 
         let mut download_futures = Vec::new();
 
@@ -403,7 +410,14 @@ impl Efs {
             .ok_or_else(|| anyhow!("File not found: {}", path))?;
 
         let block_ids = match entry {
-            EfsEntry::File { block_ids, .. } => block_ids,
+            EfsEntry::File {
+                file_id,
+                total_size,
+            } => {
+                let payload_size = UniformEnvelope::payload_size(self.chunk_size);
+                let num_blocks = (total_size as usize + payload_size - 1) / payload_size;
+                (file_id..file_id + num_blocks as u64).collect()
+            }
             EfsEntry::Directory => Vec::new(),
         };
 

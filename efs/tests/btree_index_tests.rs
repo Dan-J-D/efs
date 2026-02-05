@@ -41,7 +41,7 @@ async fn test_btree_index_hierarchical() {
         .put(
             &"/a/b/c.txt".to_string(),
             EfsEntry::File {
-                block_ids: vec![1, 2],
+                file_id: 1,
                 total_size: 100,
             },
         )
@@ -51,7 +51,7 @@ async fn test_btree_index_hierarchical() {
         .put(
             &"/a/d.txt".to_string(),
             EfsEntry::File {
-                block_ids: vec![3],
+                file_id: 3,
                 total_size: 50,
             },
         )
@@ -61,7 +61,7 @@ async fn test_btree_index_hierarchical() {
         .put(
             &"/e.txt".to_string(),
             EfsEntry::File {
-                block_ids: vec![4],
+                file_id: 4,
                 total_size: 10,
             },
         )
@@ -71,11 +71,11 @@ async fn test_btree_index_hierarchical() {
     // Test get
     let entry = index.get(&"/a/b/c.txt".to_string()).await.unwrap().unwrap();
     if let EfsEntry::File {
-        block_ids,
+        file_id,
         total_size,
     } = entry
     {
-        assert_eq!(block_ids, vec![1, 2]);
+        assert_eq!(file_id, 1);
         assert_eq!(total_size, 100);
     } else {
         panic!("Expected file");
@@ -83,11 +83,11 @@ async fn test_btree_index_hierarchical() {
 
     let entry = index.get(&"/a/d.txt".to_string()).await.unwrap().unwrap();
     if let EfsEntry::File {
-        block_ids,
+        file_id,
         total_size,
     } = entry
     {
-        assert_eq!(block_ids, vec![3]);
+        assert_eq!(file_id, 3);
         assert_eq!(total_size, 50);
     } else {
         panic!("Expected file");
@@ -95,11 +95,11 @@ async fn test_btree_index_hierarchical() {
 
     let entry = index.get(&"/e.txt".to_string()).await.unwrap().unwrap();
     if let EfsEntry::File {
-        block_ids,
+        file_id,
         total_size,
     } = entry
     {
-        assert_eq!(block_ids, vec![4]);
+        assert_eq!(file_id, 4);
         assert_eq!(total_size, 10);
     } else {
         panic!("Expected file");
@@ -141,7 +141,7 @@ async fn test_btree_index_hierarchical() {
         .put(
             &"/x/./y/../z.txt".to_string(),
             EfsEntry::File {
-                block_ids: vec![5],
+                file_id: 5,
                 total_size: 20,
             },
         )
@@ -154,7 +154,7 @@ async fn test_btree_index_hierarchical() {
         .put(
             &"/../../root_file.txt".to_string(),
             EfsEntry::File {
-                block_ids: vec![6],
+                file_id: 6,
                 total_size: 30,
             },
         )
@@ -171,7 +171,7 @@ async fn test_btree_index_hierarchical() {
         .put(
             &".gitignore".to_string(),
             EfsEntry::File {
-                block_ids: vec![7],
+                file_id: 7,
                 total_size: 70,
             },
         )
@@ -187,8 +187,8 @@ async fn test_btree_index_hierarchical() {
         .await
         .unwrap()
         .unwrap();
-    if let EfsEntry::File { block_ids, .. } = entry {
-        assert_eq!(block_ids, vec![7]);
+    if let EfsEntry::File { file_id, .. } = entry {
+        assert_eq!(file_id, 7);
     } else {
         panic!("Expected file");
     }
@@ -197,7 +197,7 @@ async fn test_btree_index_hierarchical() {
         .put(
             &"/.gitignore".to_string(),
             EfsEntry::File {
-                block_ids: vec![8],
+                file_id: 8,
                 total_size: 80,
             },
         )
@@ -205,11 +205,11 @@ async fn test_btree_index_hierarchical() {
         .unwrap();
     let entry = index.get(&".gitignore".to_string()).await.unwrap().unwrap();
     if let EfsEntry::File {
-        block_ids,
+        file_id,
         total_size,
     } = entry
     {
-        assert_eq!(block_ids, vec![8]);
+        assert_eq!(file_id, 8);
         assert_eq!(total_size, 80);
     } else {
         panic!("Expected file");
@@ -248,7 +248,7 @@ async fn test_btree_index_no_implicit_creation() {
         .put(
             &"x/y/z.txt".to_string(),
             EfsEntry::File {
-                block_ids: vec![1],
+                file_id: 1,
                 total_size: 10,
             },
         )

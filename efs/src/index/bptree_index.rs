@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum IndexEntry {
     File {
-        block_ids: Vec<u64>,
+        file_id: u64,
         total_size: u64,
     },
     Directory {
@@ -57,7 +57,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     async fn put(&self, path: &String, value: EfsEntry) -> Result<()> {
         match value {
             EfsEntry::File {
-                block_ids,
+                file_id,
                 total_size,
             } => {
                 let parts = self.normalize_path(path)?;
@@ -87,7 +87,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
                 tree.insert(
                     parts.last().unwrap().clone(),
                     IndexEntry::File {
-                        block_ids,
+                        file_id,
                         total_size,
                     },
                 )
@@ -170,12 +170,12 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
                     current_region = region_id;
                 }
                 Some(IndexEntry::File {
-                    block_ids,
+                    file_id,
                     total_size,
                 }) => {
                     if i == parts.len() - 1 {
                         return Ok(Some(EfsEntry::File {
-                            block_ids,
+                            file_id,
                             total_size,
                         }));
                     } else {
@@ -219,10 +219,10 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
         for (name, entry) in tree.range(..).await.map_err(|e| anyhow!("{}", e))? {
             let efs_entry = match entry {
                 IndexEntry::File {
-                    block_ids,
+                    file_id,
                     total_size,
                 } => EfsEntry::File {
-                    block_ids,
+                    file_id,
                     total_size,
                 },
                 IndexEntry::Directory { .. } => EfsEntry::Directory,
@@ -311,13 +311,13 @@ impl BtreeIndex {
 
             match entry {
                 IndexEntry::File {
-                    block_ids,
+                    file_id,
                     total_size,
                 } => {
                     results.push((
                         full_path,
                         EfsEntry::File {
-                            block_ids,
+                            file_id,
                             total_size,
                         },
                     ));
