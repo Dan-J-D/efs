@@ -311,6 +311,7 @@ dependencies = [
 [[package]]
 name = "bptree"
 version = "0.1.0"
+source = "git+https://github.com/Dan-J-D/bptree.git#32c553a227ce48836348aa6ef9e13745dbc1d1a4"
 dependencies = [
  "async-recursion",
  "async-trait",
