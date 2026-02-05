@@ -20,6 +20,7 @@ pub struct BPTreeStorage {
     pub persisted_id: Arc<AtomicU64>,
     pub chunk_size: usize,
     pub region_id: RegionId,
+    pub context_salt: [u8; 32],
     pub allocation_lock: Arc<Mutex<()>>,
 }
 
@@ -28,6 +29,12 @@ impl BPTreeStorage {
         storage: EfsBlockStorage,
         region_id: RegionId,
     ) -> Self {
+        let mut context_salt = [0u8; 32];
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&storage.key);
+        hasher.update(&region_id.to_le_bytes());
+        context_salt.copy_from_slice(hasher.finalize().as_bytes());
+
         Self {
             backend: storage.backend,
             cipher: storage.cipher,
@@ -36,8 +43,16 @@ impl BPTreeStorage {
             persisted_id: storage.persisted_id,
             chunk_size: storage.chunk_size,
             region_id,
+            context_salt,
             allocation_lock: storage.allocation_lock,
         }
+    }
+
+    pub fn with_context(&self, region_id: RegionId, context_salt: [u8; 32]) -> Self {
+        let mut cloned = self.clone();
+        cloned.region_id = region_id;
+        cloned.context_salt = context_salt;
+        cloned
     }
 
     pub fn with_region(&self, region_id: RegionId) -> Self {
@@ -59,7 +74,7 @@ impl BPTreeStorage {
     fn block_name(&self, id: BlockId) -> String {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.key);
-        hasher.update(&self.region_id.to_le_bytes());
+        hasher.update(&self.context_salt);
         hasher.update(&id.to_le_bytes());
         let hash = hasher.finalize();
         hex::encode(hash.as_bytes())

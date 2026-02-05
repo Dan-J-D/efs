@@ -15,7 +15,7 @@ pub enum IndexEntry {
         total_size: u64,
     },
     Directory {
-        region_id: u64,
+        salt: [u8; 32],
     },
 }
 
@@ -32,19 +32,21 @@ impl BtreeIndex {
         })
     }
 
-    async fn get_tree(&self, region_id: u64) -> Result<BPTree<String, IndexEntry, BPTreeStorage>> {
-        let storage = self.storage.with_region(region_id);
+    fn derive_salt(&self, parent_salt: &[u8; 32], name: &str) -> [u8; 32] {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.storage.key);
+        hasher.update(parent_salt);
+        hasher.update(name.as_bytes());
+        let mut salt = [0u8; 32];
+        salt.copy_from_slice(hasher.finalize().as_bytes());
+        salt
+    }
+
+    async fn get_tree(&self, salt: [u8; 32]) -> Result<BPTree<String, IndexEntry, BPTreeStorage>> {
+        let storage = self.storage.with_context(BTREE_INDEX_REGION_ID, salt);
         BPTree::new(storage)
             .await
             .map_err(|e| anyhow!("BPTree error: {}", e))
-    }
-
-    async fn allocate_region(&self) -> Result<u64> {
-        let mut storage = self.storage.clone();
-        storage
-            .allocate_block()
-            .await
-            .map_err(|e| anyhow!("Failed to allocate region: {}", e))
     }
 
     fn normalize_path(&self, path: &str) -> Result<Vec<String>> {
@@ -71,14 +73,14 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
                     return Err(anyhow!("Cannot insert file at root path"));
                 }
 
-                let mut current_region = BTREE_INDEX_REGION_ID;
+                let mut current_salt = self.storage.context_salt;
 
                 for part in parts.iter().take(parts.len() - 1) {
-                    let tree = self.get_tree(current_region).await?;
+                    let tree = self.get_tree(current_salt).await?;
 
                     match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
-                        Some(IndexEntry::Directory { region_id }) => {
-                            current_region = region_id;
+                        Some(IndexEntry::Directory { salt }) => {
+                            current_salt = salt;
                         }
                         Some(IndexEntry::File { .. }) => {
                             return Err(anyhow!("Path component '{}' is a file", part));
@@ -89,7 +91,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
                     }
                 }
 
-                let mut tree = self.get_tree(current_region).await?;
+                let mut tree = self.get_tree(current_salt).await?;
                 tree.insert(
                     parts.last().unwrap().clone(),
                     IndexEntry::File {
@@ -108,14 +110,14 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
                     return Ok(());
                 }
 
-                let mut current_region = BTREE_INDEX_REGION_ID;
+                let mut current_salt = self.storage.context_salt;
 
                 for part in parts.iter().take(parts.len() - 1) {
-                    let tree = self.get_tree(current_region).await?;
+                    let tree = self.get_tree(current_salt).await?;
 
                     match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
-                        Some(IndexEntry::Directory { region_id }) => {
-                            current_region = region_id;
+                        Some(IndexEntry::Directory { salt }) => {
+                            current_salt = salt;
                         }
                         Some(IndexEntry::File { .. }) => {
                             return Err(anyhow!("Path component '{}' is a file", part));
@@ -127,7 +129,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
                 }
 
                 if let Some(last_part) = parts.last() {
-                    let mut tree = self.get_tree(current_region).await?;
+                    let mut tree = self.get_tree(current_salt).await?;
                     match tree.get(last_part).await.map_err(|e| anyhow!("{}", e))? {
                         Some(IndexEntry::Directory { .. }) => {
                             // Idempotent: directory already exists
@@ -137,11 +139,11 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
                             return Err(anyhow!("File '{}' already exists", last_part));
                         }
                         None => {
-                            let new_region = self.allocate_region().await?;
+                            let new_salt = self.derive_salt(&current_salt, last_part);
                             tree.insert(
                                 last_part.clone(),
                                 IndexEntry::Directory {
-                                    region_id: new_region,
+                                    salt: new_salt,
                                 },
                             )
                             .await
@@ -165,17 +167,17 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
             return Ok(Some(EfsEntry::Directory));
         }
 
-        let mut current_region = BTREE_INDEX_REGION_ID;
+        let mut current_salt = self.storage.context_salt;
         for i in 0..parts.len() {
-            let tree = self.get_tree(current_region).await?;
+            let tree = self.get_tree(current_salt).await?;
             let part = &parts[i];
 
             match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
-                Some(IndexEntry::Directory { region_id }) => {
+                Some(IndexEntry::Directory { salt }) => {
                     if i == parts.len() - 1 {
                         return Ok(Some(EfsEntry::Directory));
                     }
-                    current_region = region_id;
+                    current_salt = salt;
                 }
                 Some(IndexEntry::File {
                     file_id,
@@ -202,7 +204,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     async fn list(&self) -> Result<Vec<(String, EfsEntry)>> {
         let _guard = self.lock.lock().await;
         let mut results = Vec::new();
-        self.list_full_recursive(BTREE_INDEX_REGION_ID, "", &mut results)
+        self.list_full_recursive(self.storage.context_salt, "", &mut results)
             .await?;
         Ok(results)
     }
@@ -210,21 +212,21 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     async fn list_dir(&self, path: &String) -> Result<Vec<(String, EfsEntry)>> {
         let _guard = self.lock.lock().await;
         let parts = self.normalize_path(path)?;
-        let mut current_region = BTREE_INDEX_REGION_ID;
+        let mut current_salt = self.storage.context_salt;
 
         if !parts.is_empty() {
             for part in parts {
-                let tree = self.get_tree(current_region).await?;
+                let tree = self.get_tree(current_salt).await?;
                 match tree.get(&part).await.map_err(|e| anyhow!("{}", e))? {
-                    Some(IndexEntry::Directory { region_id }) => {
-                        current_region = region_id;
+                    Some(IndexEntry::Directory { salt }) => {
+                        current_salt = salt;
                     }
                     _ => return Err(anyhow!("Directory not found")),
                 }
             }
         }
 
-        let tree = self.get_tree(current_region).await?;
+        let tree = self.get_tree(current_salt).await?;
         let mut results = Vec::new();
         for (name, entry) in tree.range(..).await.map_err(|e| anyhow!("{}", e))? {
             let efs_entry = match entry {
@@ -249,18 +251,18 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
             return Err(anyhow!("Cannot delete root directory"));
         }
 
-        let mut current_region = BTREE_INDEX_REGION_ID;
+        let mut current_salt = self.storage.context_salt;
         for part in parts.iter().take(parts.len() - 1) {
-            let tree = self.get_tree(current_region).await?;
+            let tree = self.get_tree(current_salt).await?;
             match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
-                Some(IndexEntry::Directory { region_id }) => {
-                    current_region = region_id;
+                Some(IndexEntry::Directory { salt }) => {
+                    current_salt = salt;
                 }
                 _ => return Err(anyhow!("Path not found")),
             }
         }
 
-        let mut tree = self.get_tree(current_region).await?;
+        let mut tree = self.get_tree(current_salt).await?;
         tree.delete(parts.last().unwrap())
             .await
             .map_err(|e| anyhow!("Delete error: {}", e))?;
@@ -270,33 +272,33 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     async fn delete_region(&self, path: &String) -> Result<()> {
         let _guard = self.lock.lock().await;
         let parts = self.normalize_path(path)?;
-        let mut current_region = BTREE_INDEX_REGION_ID;
+        let mut current_salt = self.storage.context_salt;
 
-        // Traverse to find the region_id of the directory at path
+        // Traverse to find the salt of the directory at path
         for part in &parts {
-            let tree = self.get_tree(current_region).await?;
+            let tree = self.get_tree(current_salt).await?;
             match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
-                Some(IndexEntry::Directory { region_id }) => {
-                    current_region = region_id;
+                Some(IndexEntry::Directory { salt }) => {
+                    current_salt = salt;
                 }
                 _ => return Err(anyhow!("Directory not found at {}", path)),
             }
         }
 
-        // Now current_region is the region_id we want to deallocate.
+        // Now current_salt is the salt we want to deallocate.
         // We load the tree and collect all blocks.
-        let tree = self.get_tree(current_region).await?;
+        let tree = self.get_tree(current_salt).await?;
         let block_ids = tree
             .get_all_block_ids()
             .await
             .map_err(|e| anyhow!("{}", e))?;
 
-        // Deallocate each block. We use with_region to ensure we are deleting from the correct logical space.
-        let mut storage = self.storage.with_region(current_region);
+        // Deallocate each block.
+        let mut storage = self.storage.with_context(BTREE_INDEX_REGION_ID, current_salt);
         storage.deallocate_blocks(block_ids).await.map_err(|e| {
             anyhow!(
                 "Failed to deallocate blocks in region {}: {}",
-                current_region,
+                BTREE_INDEX_REGION_ID,
                 e
             )
         })?;
@@ -309,11 +311,11 @@ impl BtreeIndex {
     #[async_recursion]
     async fn list_full_recursive(
         &self,
-        region_id: u64,
+        current_salt: [u8; 32],
         prefix: &str,
         results: &mut Vec<(String, EfsEntry)>,
     ) -> Result<()> {
-        let tree = self.get_tree(region_id).await?;
+        let tree = self.get_tree(current_salt).await?;
         for (name, entry) in tree.range(..).await.map_err(|e| anyhow!("{}", e))? {
             let full_path = if prefix.is_empty() {
                 name.clone()
@@ -334,9 +336,9 @@ impl BtreeIndex {
                         },
                     ));
                 }
-                IndexEntry::Directory { region_id } => {
+                IndexEntry::Directory { salt } => {
                     results.push((full_path.clone(), EfsEntry::Directory));
-                    self.list_full_recursive(region_id, &full_path, results)
+                    self.list_full_recursive(salt, &full_path, results)
                         .await?;
                 }
             }

@@ -74,11 +74,12 @@ Data uniformity is critical for deniability.
 
 ### Deterministic Naming & Regions
 To maintain deniability, chunk names in the storage backend must be deterministic but appear random:
-- Use `blake3(key || region_id || block_id)` for chunk names.
-- `RegionId` separates different types of data:
+- Use `blake3(key || context_salt || block_id)` for chunk names.
+- `RegionId` separates different types of data (used as AAD):
   - `METADATA_REGION_ID` (0): Allocator state and root metadata.
   - `FILE_DATA_REGION_ID` (1): Actual encrypted file chunks.
-  - `BTREE_INDEX_REGION_ID` (2): Root index nodes for the B-Tree. Other regions are allocated dynamically for subdirectories.
+  - `BTREE_INDEX_REGION_ID` (2): All B-Tree index nodes for all directories.
+- **Context Salts:** Instead of separate `RegionId`s, isolation between directories is achieved using path-derived salts. The salt is derived as `blake3(silo_key || parent_salt || folder_name)`.
 - `EfsBlockStorage` manages the mapping between logical blocks and physical storage names.
 
 ### Paths & Naming
