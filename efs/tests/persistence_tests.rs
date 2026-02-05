@@ -48,7 +48,7 @@ async fn test_next_id_persistence() {
 
         // It should match the id after the previous session
         // Wait, Efs::put might have allocated more than one block? No, "hello world" is small, so 1 block.
-        // Actually, B-Tree might have also allocated blocks.
+        // Actually, B+ Tree might have also allocated blocks.
 
         // Let's just check that it's greater than 10 and consistent with where we left off.
         assert!(id_after_restart > 10);

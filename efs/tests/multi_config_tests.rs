@@ -1,10 +1,10 @@
 use efs::crypto::Aes256GcmCipher;
-use efs::index::{BPTreeStorage, BtreeIndex};
+use efs::index::{BPlusTreeStorage, BPlusTreeIndex};
 use efs::storage::local::LocalBackend;
 use efs::storage::lru::LruBackend;
 use efs::storage::memory::MemoryBackend;
 use efs::storage::s3::S3Backend;
-use efs::{Efs, BTREE_INDEX_REGION_ID, DEFAULT_CHUNK_SIZE};
+use efs::{Efs, BPLUS_TREE_INDEX_REGION_ID, DEFAULT_CHUNK_SIZE};
 use object_store::memory::InMemory;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -31,7 +31,7 @@ async fn test_memory_kv_config() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_local_btree_config() {
+async fn test_local_bplus_tree_config() {
     let tmp = tempdir().unwrap();
     let storage = Arc::new(LocalBackend::new(tmp.path()).unwrap());
     let cipher = Arc::new(Aes256GcmCipher::default());
@@ -48,11 +48,11 @@ async fn test_local_btree_config() {
     .await
     .unwrap();
     
-    let index_storage = BPTreeStorage::new(
+    let index_storage = BPlusTreeStorage::new(
         efs_temp.storage_adapter.clone(),
-        BTREE_INDEX_REGION_ID,
+        BPLUS_TREE_INDEX_REGION_ID,
     );
-    let index: Arc<dyn efs::EfsIndex<String, efs::EfsEntry>> = Arc::new(BtreeIndex::new(index_storage).unwrap());
+    let index: Arc<dyn efs::EfsIndex<String, efs::EfsEntry>> = Arc::new(BPlusTreeIndex::new(index_storage).unwrap());
 
     let efs = Efs::builder()
         .with_storage(storage)
@@ -63,7 +63,7 @@ async fn test_local_btree_config() {
         .await
         .unwrap();
 
-    let data = b"local + btree index test data";
+    let data = b"local + b+ tree index test data";
     efs.mkdir("/dir1").await.unwrap();
     efs.mkdir("/dir1/dir2").await.unwrap();
     efs.put("/dir1/dir2/test_file", data).await.unwrap();

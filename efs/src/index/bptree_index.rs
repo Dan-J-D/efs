@@ -1,5 +1,5 @@
-use crate::index::BPTreeStorage;
-use crate::storage::BTREE_INDEX_REGION_ID;
+use crate::index::BPlusTreeStorage;
+use crate::storage::BPLUS_TREE_INDEX_REGION_ID;
 use crate::{EfsEntry, EfsIndex};
 use anyhow::{anyhow, Result};
 use async_recursion::async_recursion;
@@ -21,13 +21,13 @@ pub enum IndexEntry {
     },
 }
 
-pub struct BtreeIndex {
-    storage: BPTreeStorage,
+pub struct BPlusTreeIndex {
+    storage: BPlusTreeStorage,
     lock: tokio::sync::Mutex<()>,
 }
 
-impl BtreeIndex {
-    pub fn new(storage: BPTreeStorage) -> Result<Self> {
+impl BPlusTreeIndex {
+    pub fn new(storage: BPlusTreeStorage) -> Result<Self> {
         Ok(Self {
             storage,
             lock: tokio::sync::Mutex::new(()),
@@ -47,8 +47,8 @@ impl BtreeIndex {
         salt
     }
 
-    async fn get_tree(&self, salt: [u8; 32]) -> Result<BPTree<String, IndexEntry, BPTreeStorage>> {
-        let storage = self.storage.with_context(BTREE_INDEX_REGION_ID, salt);
+    async fn get_tree(&self, salt: [u8; 32]) -> Result<BPTree<String, IndexEntry, BPlusTreeStorage>> {
+        let storage = self.storage.with_context(BPLUS_TREE_INDEX_REGION_ID, salt);
         BPTree::new(storage)
             .await
             .map_err(|e| anyhow!("BPTree error: {}", e))
@@ -64,7 +64,7 @@ impl BtreeIndex {
 }
 
 #[async_trait]
-impl EfsIndex<String, EfsEntry> for BtreeIndex {
+impl EfsIndex<String, EfsEntry> for BPlusTreeIndex {
     #[tracing::instrument(skip(self))]
     async fn put(&self, path: &String, value: EfsEntry) -> Result<()> {
         let _guard = self.lock.lock().await;
@@ -299,11 +299,11 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
             .map_err(|e| anyhow!("{}", e))?;
 
         // Deallocate each block.
-        let mut storage = self.storage.with_context(BTREE_INDEX_REGION_ID, current_salt);
+        let mut storage = self.storage.with_context(BPLUS_TREE_INDEX_REGION_ID, current_salt);
         storage.deallocate_blocks(block_ids).await.map_err(|e| {
             anyhow!(
                 "Failed to deallocate blocks in region {}: {}",
-                BTREE_INDEX_REGION_ID,
+                BPLUS_TREE_INDEX_REGION_ID,
                 e
             )
         })?;
@@ -312,7 +312,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     }
 }
 
-impl BtreeIndex {
+impl BPlusTreeIndex {
     #[async_recursion]
     async fn list_full_recursive(
         &self,

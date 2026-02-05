@@ -166,7 +166,7 @@ fn test_cli_custom_chunk_size() -> Result<(), Box<dyn std::error::Error>> {
     let entries: Vec<_> = fs::read_dir(&backend_path)?.collect();
     // 200KB / (64KB - overhead) = 200 / 63.9... -> 4 chunks for data
     // Plus 1 for root silo config
-    // Plus B-Tree nodes. B-Tree starts with root (1 node).
+    // Plus B+ Tree nodes. B+ Tree starts with root (1 node).
     // Total should be at least 6.
     assert!(entries.len() >= 6);
 

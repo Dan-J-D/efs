@@ -9,7 +9,7 @@ EFS is a high-performance, asynchronous, and secure encrypted file system implem
 - **Multi-Silo Support:** Multiple logical volumes (silos) can coexist on the same storage backend, each with its own keys derived from a password.
 - **Mirroring & High Availability:** Built-in support for mirroring data across multiple storage backends with majority-logic for consistency.
 - **Flexible Storage Backends:** Supports S3-compatible storage, local filesystem, and in-memory backends.
-- **B-Tree Indexing:** Efficient directory and file indexing using a B-Tree structure optimized for encrypted block storage.
+- **B+ Tree Indexing:** Efficient directory and file indexing using a B+ Tree structure optimized for encrypted block storage.
 - **Modern CLI & TUI:** Includes both a powerful command-line interface and an intuitive terminal user interface.
 
 ## Project Structure

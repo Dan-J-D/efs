@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use crate::storage::block::EfsBlockStorage;
 
 #[derive(Clone)]
-pub struct BPTreeStorage {
+pub struct BPlusTreeStorage {
     pub backend: Arc<dyn StorageBackend>,
     pub cipher: Arc<dyn Cipher>,
     pub hasher: Arc<dyn Hasher>,
@@ -26,7 +26,7 @@ pub struct BPTreeStorage {
     pub allocation_lock: Arc<Mutex<()>>,
 }
 
-impl BPTreeStorage {
+impl BPlusTreeStorage {
     pub fn new(
         storage: EfsBlockStorage,
         region_id: RegionId,
@@ -88,7 +88,7 @@ impl BPTreeStorage {
 }
 
 #[async_trait]
-impl BlockStorage for BPTreeStorage {
+impl BlockStorage for BPlusTreeStorage {
     type Error = StorageError;
 
     #[tracing::instrument(skip(self))]

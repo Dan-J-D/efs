@@ -1,13 +1,13 @@
 use efs::crypto::Aes256GcmCipher;
-use efs::index::{BPTreeStorage, BtreeIndex};
+use efs::index::{BPlusTreeStorage, BPlusTreeIndex};
 use efs::storage::local::LocalBackend;
-use efs::{EfsEntry, EfsIndex, BTREE_INDEX_REGION_ID};
+use efs::{EfsEntry, EfsIndex, BPLUS_TREE_INDEX_REGION_ID};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tempfile::TempDir;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_btree_index_hierarchical() {
+async fn test_bplus_tree_index_hierarchical() {
     let temp_dir = TempDir::new().unwrap();
     let backend: Arc<dyn efs::storage::StorageBackend> =
         Arc::new(LocalBackend::new(temp_dir.path()).unwrap());
@@ -28,12 +28,12 @@ async fn test_btree_index_hierarchical() {
         Arc::new(tokio::sync::Mutex::new(())),
     );
 
-    let storage = BPTreeStorage::new(
+    let storage = BPlusTreeStorage::new(
         storage_adapter,
-        BTREE_INDEX_REGION_ID,
+        BPLUS_TREE_INDEX_REGION_ID,
     );
 
-    let index = BtreeIndex::new(storage).unwrap();
+    let index = BPlusTreeIndex::new(storage).unwrap();
 
     // Test put
     index
@@ -224,7 +224,7 @@ async fn test_btree_index_hierarchical() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_btree_index_no_implicit_creation() {
+async fn test_bplus_tree_index_no_implicit_creation() {
     let temp_dir = TempDir::new().unwrap();
     let backend: Arc<dyn efs::storage::StorageBackend> =
         Arc::new(LocalBackend::new(temp_dir.path()).unwrap());
@@ -245,12 +245,12 @@ async fn test_btree_index_no_implicit_creation() {
         Arc::new(tokio::sync::Mutex::new(())),
     );
 
-    let storage = BPTreeStorage::new(
+    let storage = BPlusTreeStorage::new(
         storage_adapter,
-        BTREE_INDEX_REGION_ID,
+        BPLUS_TREE_INDEX_REGION_ID,
     );
 
-    let index = BtreeIndex::new(storage).unwrap();
+    let index = BPlusTreeIndex::new(storage).unwrap();
 
     // mkdir("a/b/c") should fail if "a" and "b" don't exist
     let result = index.put(&"a/b/c".to_string(), EfsEntry::Directory).await;

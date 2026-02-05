@@ -1,4 +1,4 @@
-use crate::index::bptree_storage::BPTreeStorage;
+use crate::index::bptree_storage::BPlusTreeStorage;
 use crate::EfsIndex;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
@@ -12,9 +12,9 @@ where
     K: Serialize + DeserializeOwned + Ord + Clone + Send + Sync + Debug + 'static,
     V: Serialize + DeserializeOwned + Clone + Send + Sync + Debug + 'static,
 {
-    tree: RwLock<BPTree<K, V, BPTreeStorage>>,
+    tree: RwLock<BPTree<K, V, BPlusTreeStorage>>,
     #[allow(dead_code)]
-    storage: BPTreeStorage,
+    storage: BPlusTreeStorage,
 }
 
 impl<K, V> KvIndex<K, V>
@@ -22,7 +22,7 @@ where
     K: Serialize + DeserializeOwned + Ord + Clone + Send + Sync + Debug + 'static,
     V: Serialize + DeserializeOwned + Clone + Send + Sync + Debug + 'static,
 {
-    pub async fn new(storage: BPTreeStorage) -> Result<Self> {
+    pub async fn new(storage: BPlusTreeStorage) -> Result<Self> {
         let tree = BPTree::new(storage.clone())
             .await
             .context("Failed to initialize BPTree for KvIndex")?;

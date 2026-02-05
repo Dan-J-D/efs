@@ -40,7 +40,7 @@ async fn test_conclusive_lifecycle() {
     efs.put("/a/b/c/file.txt", b"hello").await.unwrap();
     verify_no_leaks(&efs).await;
 
-    // 4. Multiple files in a directory to trigger B-Tree nodes
+    // 4. Multiple files in a directory to trigger B+ Tree nodes
     for i in 0..50 {
         efs.put(&format!("/a/b/c/many_{}.txt", i), b"content")
             .await

@@ -11,7 +11,7 @@ pub use crate::crypto::{Cipher, Hasher, Kdf, Key32};
 pub use crate::mirror::MirrorOrchestrator;
 pub use crate::silo::{SiloConfig, SiloManager};
 pub use crate::storage::block::EfsBlockStorage;
-pub use crate::storage::{RegionId, StorageBackend, BTREE_INDEX_REGION_ID, FILE_DATA_REGION_ID};
+pub use crate::storage::{RegionId, StorageBackend, BPLUS_TREE_INDEX_REGION_ID, FILE_DATA_REGION_ID};
 
 use anyhow::{anyhow, Context, Result};
 use async_recursion::async_recursion;
@@ -244,13 +244,13 @@ impl EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
                 storage_adapter.persisted_id(),
                 storage_adapter.allocation_lock(),
             );
-            let index_storage = crate::index::BPTreeStorage::new(
+            let index_storage = crate::index::BPlusTreeStorage::new(
                 cached_adapter,
-                BTREE_INDEX_REGION_ID,
+                BPLUS_TREE_INDEX_REGION_ID,
             );
             Arc::new(
-                crate::index::BtreeIndex::new(index_storage)
-                    .context("Failed to create BtreeIndex")?,
+                crate::index::BPlusTreeIndex::new(index_storage)
+                    .context("Failed to create BPlusTreeIndex")?,
             ) as Arc<dyn EfsIndex<String, EfsEntry>>
         };
 
@@ -667,7 +667,7 @@ where
             }
         }
 
-        // Delete the region chunks if the index supports it (e.g. BtreeIndex)
+        // Delete the region chunks if the index supports it (e.g. BPlusTreeIndex)
         self.index.delete_region(&path_str).await?;
         // Finally delete the directory entry from parent index
         self.index.delete(&path_str).await?;

@@ -78,7 +78,7 @@ To maintain deniability, chunk names in the storage backend must be deterministi
 - `RegionId` separates different types of data (used as AAD):
   - `METADATA_REGION_ID` (0): Allocator state and root metadata.
   - `FILE_DATA_REGION_ID` (1): Actual encrypted file chunks.
-  - `BTREE_INDEX_REGION_ID` (2): All B-Tree index nodes for all directories.
+  - `BPLUS_TREE_INDEX_REGION_ID` (2): All B+ Tree index nodes for all directories.
 - **Context Salts:** Instead of separate `RegionId`s, isolation between directories is achieved using path-derived salts. The salt is derived as `blake3(silo_key || parent_salt || folder_name)`.
 - `EfsBlockStorage` manages the mapping between logical blocks and physical storage names.
 
@@ -88,10 +88,10 @@ To maintain deniability, chunk names in the storage backend must be deterministi
 - The root directory is represented by an empty string `""`.
 - **Naming Whitelist:** Only ASCII alphanumeric characters, dots (`.`), hyphens (`-`), and underscores (`_`) are allowed in path components.
 
-### EfsIndex & B-Trees
-- The default index is `BtreeIndex` (implemented in `efs/src/index/bptree_index.rs`).
-- It uses `BPTreeStorage` which adapts `EfsBlockStorage` for use with the `bptree` crate.
-- Index nodes are stored in the `BTREE_INDEX_REGION_ID`.
+### EfsIndex & B+ Trees
+- The default index is `BPlusTreeIndex` (implemented in `efs/src/index/bptree_index.rs`).
+- It uses `BPlusTreeStorage` which adapts `EfsBlockStorage` for use with the `bptree` crate.
+- Index nodes are stored in the `BPLUS_TREE_INDEX_REGION_ID`.
 - Recursive operations (delete/put) should be handled via the high-level `Efs` methods.
 
 ### Silo Management

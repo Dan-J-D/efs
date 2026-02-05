@@ -1,7 +1,7 @@
 use efs::crypto::Aes256GcmCipher;
-use efs::index::{BPTreeStorage, BtreeIndex};
+use efs::index::{BPlusTreeStorage, BPlusTreeIndex};
 use efs::storage::local::LocalBackend;
-use efs::{Efs, EfsBlockStorage, BTREE_INDEX_REGION_ID, DEFAULT_CHUNK_SIZE};
+use efs::{Efs, EfsBlockStorage, BPLUS_TREE_INDEX_REGION_ID, DEFAULT_CHUNK_SIZE};
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -14,24 +14,24 @@ async fn test_efs_builder_custom_index() {
     let key = secrecy::SecretBox::new(Box::new(efs::Key32([0u8; 32])));
     let chunk_size = DEFAULT_CHUNK_SIZE;
 
-    // We need to load next_id to properly construct BPTreeStorage for BtreeIndex
+    // We need to load next_id to properly construct BPlusTreeStorage for BPlusTreeIndex
     let hasher = Arc::new(efs::crypto::Blake3Hasher::default());
     let storage_adapter =
         EfsBlockStorage::new(backend.clone(), cipher.clone(), hasher, key.clone(), chunk_size);
     storage_adapter.load_next_id().await.unwrap();
 
-    let btree_storage = BPTreeStorage::new(
+    let bplus_tree_storage = BPlusTreeStorage::new(
         storage_adapter,
-        BTREE_INDEX_REGION_ID,
+        BPLUS_TREE_INDEX_REGION_ID,
     );
-    let btree_index: Arc<dyn efs::EfsIndex<String, efs::EfsEntry>> = Arc::new(BtreeIndex::new(btree_storage).unwrap());
+    let bplus_tree_index: Arc<dyn efs::EfsIndex<String, efs::EfsEntry>> = Arc::new(BPlusTreeIndex::new(bplus_tree_storage).unwrap());
 
     let efs = Efs::builder()
         .with_storage(backend)
         .with_cipher(cipher)
         .with_key(key)
         .with_chunk_size(chunk_size)
-        .with_index(btree_index)
+        .with_index(bplus_tree_index)
         .build()
         .await
         .unwrap();

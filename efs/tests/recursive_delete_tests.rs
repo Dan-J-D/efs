@@ -57,7 +57,7 @@ async fn test_recursive_delete() {
     let files = efs.list().await.unwrap();
     assert_eq!(files.len(), 0);
 
-    // Explicitly test region deletion for BtreeIndex
+    // Explicitly test region deletion for BPlusTreeIndex
     let count_before = backend.list().await.unwrap().len();
     efs.mkdir("/sub").await.unwrap();
     efs.put("/sub/1.txt", b"1").await.unwrap();
