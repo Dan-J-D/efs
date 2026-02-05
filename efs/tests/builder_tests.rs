@@ -24,14 +24,15 @@ async fn test_efs_builder_custom_index() {
         backend.clone(),
         cipher.clone(),
         key.clone(),
-        Arc::new(AtomicU64::new(next_id)),
+        storage_adapter.next_id(),
+        storage_adapter.persisted_id(),
         chunk_size,
         BTREE_INDEX_REGION_ID,
         storage_adapter.allocation_lock(),
     );
-    let btree_index = Arc::new(BtreeIndex::new(btree_storage).unwrap());
+    let btree_index: Arc<dyn efs::EfsIndex<String, efs::EfsEntry>> = Arc::new(BtreeIndex::new(btree_storage).unwrap());
 
-    let mut efs = Efs::builder()
+    let efs = Efs::builder()
         .with_storage(backend)
         .with_cipher(cipher)
         .with_key(key)

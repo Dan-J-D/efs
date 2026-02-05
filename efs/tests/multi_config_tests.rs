@@ -51,13 +51,14 @@ async fn test_local_btree_config() {
         cipher.clone(),
         key.clone(),
         next_id,
+        efs_temp.storage_adapter.persisted_id(),
         DEFAULT_CHUNK_SIZE,
         BTREE_INDEX_REGION_ID,
         efs_temp.storage_adapter.allocation_lock(),
     );
-    let index = Arc::new(BtreeIndex::new(index_storage).unwrap());
+    let index: Arc<dyn efs::EfsIndex<String, efs::EfsEntry>> = Arc::new(BtreeIndex::new(index_storage).unwrap());
 
-    let mut efs = Efs::builder()
+    let efs = Efs::builder()
         .with_storage(storage)
         .with_cipher(cipher)
         .with_key(key)

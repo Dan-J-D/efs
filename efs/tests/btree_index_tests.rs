@@ -21,6 +21,7 @@ async fn test_btree_index_hierarchical() {
         cipher.clone(),
         key.clone(),
         next_id.clone(),
+        next_id.clone(),
         chunk_size,
         BTREE_INDEX_REGION_ID,
         Arc::new(tokio::sync::Mutex::new(())),
@@ -231,6 +232,7 @@ async fn test_btree_index_no_implicit_creation() {
         cipher.clone(),
         key.clone(),
         next_id.clone(),
+        next_id.clone(),
         chunk_size,
         BTREE_INDEX_REGION_ID,
         Arc::new(tokio::sync::Mutex::new(())),
@@ -256,12 +258,10 @@ async fn test_btree_index_no_implicit_creation() {
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("does not exist"));
 
-    // mkdir should fail if target already exists
+    // mkdir should be idempotent
     index
         .put(&"a".to_string(), EfsEntry::Directory)
         .await
         .unwrap();
-    let result = index.put(&"a".to_string(), EfsEntry::Directory).await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("already exists"));
+    index.put(&"a".to_string(), EfsEntry::Directory).await.unwrap();
 }

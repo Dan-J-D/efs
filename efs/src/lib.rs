@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use getset::{Getters, Setters};
 use serde::{Deserialize, Serialize};
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -31,7 +32,11 @@ pub enum EfsEntry {
 }
 
 #[async_trait]
-pub trait EfsIndex<K, V>: Send + Sync {
+pub trait EfsIndex<K, V>: Send + Sync 
+where
+    K: 'static,
+    V: 'static,
+{
     async fn put(&self, key: &K, value: V) -> Result<()>;
     async fn get(&self, key: &K) -> Result<Option<V>>;
     async fn list(&self) -> Result<Vec<(K, V)>>;
@@ -40,19 +45,48 @@ pub trait EfsIndex<K, V>: Send + Sync {
     async fn delete_region(&self, key: &K) -> Result<()>;
 }
 
-pub struct Efs {
-    pub index: Arc<dyn EfsIndex<String, EfsEntry>>,
+#[async_trait]
+impl<K, V, T: EfsIndex<K, V> + ?Sized> EfsIndex<K, V> for Arc<T>
+where
+    K: Send + Sync + 'static,
+    V: Send + Sync + 'static,
+{
+    async fn put(&self, key: &K, value: V) -> Result<()> {
+        (**self).put(key, value).await
+    }
+    async fn get(&self, key: &K) -> Result<Option<V>> {
+        (**self).get(key).await
+    }
+    async fn list(&self) -> Result<Vec<(K, V)>> {
+        (**self).list().await
+    }
+    async fn list_dir(&self, key: &K) -> Result<Vec<(K, V)>> {
+        (**self).list_dir(key).await
+    }
+    async fn delete(&self, key: &K) -> Result<()> {
+        (**self).delete(key).await
+    }
+    async fn delete_region(&self, key: &K) -> Result<()> {
+        (**self).delete_region(key).await
+    }
+}
+
+pub struct Efs<K: 'static = String, V: 'static = EfsEntry, I = Arc<dyn EfsIndex<K, V>>>
+where
+    I: EfsIndex<K, V>,
+{
+    pub index: I,
     pub storage_adapter: EfsBlockStorage,
     pub storage: Arc<dyn StorageBackend>,
     pub cipher: Arc<dyn Cipher>,
     pub key: Vec<u8>,
     pub chunk_size: usize,
     pub directory_cache: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    _phantom: PhantomData<(K, V)>,
 }
 
-
 #[derive(Getters, Setters)]
-pub struct EfsBuilder {
+pub struct EfsBuilder<K: 'static = String, V: 'static = EfsEntry, I = Arc<dyn EfsIndex<K, V>>> {
     #[getset(get = "pub", set = "pub")]
     storage: Arc<dyn StorageBackend>,
     #[getset(get = "pub", set = "pub")]
@@ -62,10 +96,11 @@ pub struct EfsBuilder {
     #[getset(get = "pub", set = "pub")]
     chunk_size: usize,
     #[getset(get = "pub", set = "pub")]
-    index: Option<Arc<dyn EfsIndex<String, EfsEntry>>>,
+    index: Option<I>,
+    _phantom: PhantomData<(K, V)>,
 }
 
-impl Default for EfsBuilder {
+impl Default for EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
     fn default() -> Self {
         Self {
             storage: Arc::new(crate::storage::memory::MemoryBackend::new()),
@@ -73,12 +108,21 @@ impl Default for EfsBuilder {
             key: vec![0u8; 32],
             chunk_size: DEFAULT_CHUNK_SIZE,
             index: None,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl EfsBuilder {
-    pub fn new() -> Self {
+impl<K, V, I> EfsBuilder<K, V, I>
+where
+    K: Send + Sync + 'static,
+    V: Send + Sync + 'static,
+    I: EfsIndex<K, V>,
+{
+    pub fn new() -> Self
+    where
+        Self: Default,
+    {
         Self::default()
     }
 
@@ -102,12 +146,61 @@ impl EfsBuilder {
         self
     }
 
-    pub fn with_index(mut self, index: Arc<dyn EfsIndex<String, EfsEntry>>) -> Self {
-        self.index = Some(index);
-        self
+    pub fn with_index<NewK, NewV, NewI>(
+        self,
+        index: NewI,
+    ) -> EfsBuilder<NewK, NewV, NewI>
+    where
+        NewK: Send + Sync + 'static,
+        NewV: Send + Sync + 'static,
+        NewI: EfsIndex<NewK, NewV>,
+    {
+        EfsBuilder {
+            storage: self.storage,
+            cipher: self.cipher,
+            key: self.key,
+            chunk_size: self.chunk_size,
+            index: Some(index),
+            _phantom: PhantomData,
+        }
     }
 
-    pub async fn build(self) -> Result<Efs> {
+    pub async fn build_custom(self) -> Result<Efs<K, V, I>> {
+        let storage_adapter = EfsBlockStorage::new(
+            self.storage.clone(),
+            self.cipher.clone(),
+            self.key.clone(),
+            self.chunk_size,
+        );
+
+        let next_id = storage_adapter
+            .load_next_id()
+            .await
+            .context("Failed to load next_id from storage")?;
+        storage_adapter.set_next_id(next_id);
+
+        let index = if let Some(index) = self.index {
+            index
+        } else {
+            // This part is problematic because we don't know how to create a default index for arbitrary K, V
+            return Err(anyhow!("Index not provided and no default available for these types"));
+        };
+
+        Ok(Efs {
+            index,
+            storage_adapter,
+            storage: self.storage,
+            cipher: self.cipher,
+            key: self.key,
+            chunk_size: self.chunk_size,
+            directory_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+            _phantom: PhantomData,
+        })
+    }
+}
+
+impl EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
+    pub async fn build(self) -> Result<Efs<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>>> {
         let storage_adapter = EfsBlockStorage::new(
             self.storage.clone(),
             self.cipher.clone(),
@@ -142,7 +235,7 @@ impl EfsBuilder {
             Arc::new(
                 crate::index::BtreeIndex::new(index_storage)
                     .context("Failed to create BtreeIndex")?,
-            )
+            ) as Arc<dyn EfsIndex<String, EfsEntry>>
         };
 
         Ok(Efs {
@@ -153,12 +246,13 @@ impl EfsBuilder {
             key: self.key,
             chunk_size: self.chunk_size,
             directory_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+            _phantom: PhantomData,
         })
     }
 }
 
-impl Efs {
-    pub fn builder() -> EfsBuilder {
+impl Efs<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
+    pub fn builder() -> EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
         EfsBuilder::default()
     }
 
@@ -176,7 +270,35 @@ impl Efs {
             .build()
             .await
     }
+}
 
+impl<K, V, I> Efs<K, V, I>
+where
+    K: Send + Sync + 'static,
+    V: Send + Sync + 'static,
+    I: EfsIndex<K, V>,
+{
+    pub async fn put_kv(&self, key: &K, value: V) -> Result<()> {
+        self.index.put(key, value).await
+    }
+
+    pub async fn get_kv(&self, key: &K) -> Result<Option<V>> {
+        self.index.get(key).await
+    }
+
+    pub async fn delete_kv(&self, key: &K) -> Result<()> {
+        self.index.delete(key).await
+    }
+
+    pub async fn list_kv(&self) -> Result<Vec<(K, V)>> {
+        self.index.list().await
+    }
+}
+
+impl<I> Efs<String, EfsEntry, I>
+where
+    I: EfsIndex<String, EfsEntry>,
+{
     #[tracing::instrument(skip(self, data))]
     pub async fn put(&self, path: &str, data: &[u8]) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
@@ -216,7 +338,6 @@ impl Efs {
         let chunk_count = chunks.len();
 
         let block_ids = {
-            let _span = tracing::info_span!("allocate_blocks").entered();
             self.storage_adapter
                 .allocate_blocks(FILE_DATA_REGION_ID, chunk_count)
                 .await
@@ -268,7 +389,6 @@ impl Efs {
             .context("One or more chunk uploads failed")?;
 
         {
-            let _span = tracing::info_span!("index_put").entered();
             if let Err(e) = self
                 .index
                 .put(
