@@ -56,6 +56,9 @@ impl BtreeIndex {
 impl EfsIndex for BtreeIndex {
     async fn insert(&self, path: &str, block_ids: Vec<u64>, total_size: u64) -> Result<()> {
         let parts = self.normalize_path(path)?;
+        if parts.is_empty() {
+            return Err(anyhow!("Cannot insert file at root path"));
+        }
 
         let mut current_region = BTREE_INDEX_REGION_ID;
 
