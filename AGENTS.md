@@ -78,7 +78,7 @@ To maintain deniability, chunk names in the storage backend must be deterministi
 - `RegionId` separates different types of data:
   - `METADATA_REGION_ID` (0): Allocator state and root metadata.
   - `FILE_DATA_REGION_ID` (1): Actual encrypted file chunks.
-  - `BTREE_REGION_ID` (2): Index nodes for the B-Tree.
+  - `BTREE_INDEX_REGION_ID` (2): Root index nodes for the B-Tree. Other regions are allocated dynamically for subdirectories.
 - `EfsBlockStorage` manages the mapping between logical blocks and physical storage names.
 
 ### Paths & Naming
@@ -90,7 +90,7 @@ To maintain deniability, chunk names in the storage backend must be deterministi
 ### EfsIndex & B-Trees
 - The default index is `BtreeIndex` (implemented in `efs/src/index/bptree_index.rs`).
 - It uses `BPTreeStorage` which adapts `EfsBlockStorage` for use with the `bptree` crate.
-- Index nodes are stored in the `BTREE_REGION_ID`.
+- Index nodes are stored in the `BTREE_INDEX_REGION_ID`.
 - Recursive operations (delete/put) should be handled via the high-level `Efs` methods.
 
 ### Silo Management

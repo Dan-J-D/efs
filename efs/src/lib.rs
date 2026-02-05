@@ -81,7 +81,6 @@ where
     pub cipher: Arc<dyn Cipher>,
     pub key: Vec<u8>,
     pub chunk_size: usize,
-    pub directory_cache: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
     _phantom: PhantomData<(K, V)>,
 }
 
@@ -193,7 +192,6 @@ where
             cipher: self.cipher,
             key: self.key,
             chunk_size: self.chunk_size,
-            directory_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
             _phantom: PhantomData,
         })
     }
@@ -248,7 +246,6 @@ impl EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>>> {
             cipher: self.cipher,
             key: self.key,
             chunk_size: self.chunk_size,
-            directory_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
             _phantom: PhantomData,
         })
     }
@@ -307,15 +304,7 @@ where
         let path = crate::path::normalize_path(path)?;
 
         if let Some(parent) = crate::path::get_parent(&path) {
-            let needs_mkdir = {
-                let cache = self.directory_cache.lock().await;
-                !cache.contains(parent)
-            };
-            
-            if needs_mkdir {
-                self.mkdir_p(parent).await?;
-                // mkdir_p will update the cache itself
-            }
+            self.mkdir_p(parent).await?;
         }
 
         let mut old_file_info = None;
@@ -450,13 +439,6 @@ where
             return Ok(());
         }
 
-        {
-            let cache = self.directory_cache.lock().await;
-            if cache.contains(&path) {
-                return Ok(());
-            }
-        }
-
         let parts: Vec<&str> = path.split('/').collect();
         let mut current = String::new();
         for part in parts {
@@ -465,9 +447,6 @@ where
             }
             current.push_str(part);
             self.mkdir(&current).await?;
-            
-            let mut cache = self.directory_cache.lock().await;
-            cache.insert(current.clone());
         }
         Ok(())
     }
