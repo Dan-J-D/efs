@@ -107,6 +107,11 @@ fn get_password() -> Result<String> {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+        .init();
+
     let cli = Cli::parse();
     let password = get_password()?;
     let mut cfg = config::load_config(&cli.config, password.as_bytes())?;
@@ -186,7 +191,7 @@ async fn main() -> Result<()> {
                 .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
                 .await?;
 
-            let mut efs = Efs::new(
+            let efs = Efs::new(
                 storage,
                 Arc::new(StandardCipher),
                 silo_cfg.data_key,
@@ -263,7 +268,7 @@ async fn main() -> Result<()> {
                 .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
                 .await?;
 
-            let mut efs = Efs::new(
+            let efs = Efs::new(
                 storage,
                 Arc::new(StandardCipher),
                 silo_cfg.data_key,
@@ -294,7 +299,7 @@ async fn main() -> Result<()> {
                 .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
                 .await?;
 
-            let mut efs = Efs::new(
+            let efs = Efs::new(
                 storage,
                 Arc::new(StandardCipher),
                 silo_cfg.data_key,

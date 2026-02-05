@@ -335,8 +335,15 @@ async fn get_storage(cfg: &Config) -> Result<Arc<dyn StorageBackend>> {
     Ok(Arc::new(MirrorOrchestrator::new(backends)))
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
+    let file_appender = tracing_appender::rolling::never(".", "efs-tui.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
     let args = Args::parse();
 
     enable_raw_mode()?;
@@ -749,7 +756,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                         KeyCode::Enter => {
                             let lp = local_path.clone();
                             let rp = remote_path.clone();
-                            if let Some(efs) = &mut app.efs {
+                            if let Some(efs) = &app.efs {
                                 if let Err(e) = efs.put_recursive(&lp, &rp).await {
                                     app.state = AppState::Error(e.to_string());
                                 } else {
@@ -787,7 +794,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                             // Force draw to show "Moving..."
                             terminal.draw(|f| ui(f, app))?;
 
-                            if let Some(efs) = &mut app.efs {
+                            if let Some(efs) = &app.efs {
                                 // "logically deletes the data and uploads it"
                                 match efs.get(&src).await {
                                     Ok(data) => {
@@ -854,7 +861,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                             // Force draw to show "Deleting..."
                             terminal.draw(|f| ui(f, app))?;
 
-                            if let Some(efs) = &mut app.efs {
+                            if let Some(efs) = &app.efs {
                                 if let Err(e) = efs.delete_recursive(&p).await {
                                     app.state = AppState::Error(e.to_string());
                                 } else {

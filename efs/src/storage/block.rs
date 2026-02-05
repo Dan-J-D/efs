@@ -15,6 +15,7 @@ pub struct EfsBlockStorage {
     cipher: Arc<dyn Cipher>,
     key: Vec<u8>,
     next_id: Arc<AtomicU64>,
+    persisted_id: Arc<AtomicU64>,
     chunk_size: usize,
     allocation_lock: Arc<Mutex<()>>,
 }
@@ -31,6 +32,7 @@ impl EfsBlockStorage {
             cipher,
             key,
             next_id: Arc::new(AtomicU64::new(10)), // Start from 10 to avoid collisions with reserved regions (0, 1, 2)
+            persisted_id: Arc::new(AtomicU64::new(10)),
             chunk_size,
             allocation_lock: Arc::new(Mutex::new(())),
         }
@@ -42,6 +44,7 @@ impl EfsBlockStorage {
         key: Vec<u8>,
         chunk_size: usize,
         next_id: Arc<AtomicU64>,
+        persisted_id: Arc<AtomicU64>,
         allocation_lock: Arc<Mutex<()>>,
     ) -> Self {
         Self {
@@ -49,6 +52,7 @@ impl EfsBlockStorage {
             cipher,
             key,
             next_id,
+            persisted_id,
             chunk_size,
             allocation_lock,
         }
@@ -67,12 +71,17 @@ impl EfsBlockStorage {
         self.next_id.clone()
     }
 
+    pub fn persisted_id(&self) -> Arc<AtomicU64> {
+        self.persisted_id.clone()
+    }
+
     pub fn allocation_lock(&self) -> Arc<Mutex<()>> {
         self.allocation_lock.clone()
     }
 
     pub fn set_next_id(&self, id: u64) {
         self.next_id.store(id, Ordering::SeqCst);
+        self.persisted_id.store(id, Ordering::SeqCst);
     }
 
     pub async fn read_block(&self, region_id: RegionId, id: BlockId) -> Result<Vec<u8>> {
@@ -103,7 +112,7 @@ impl EfsBlockStorage {
     }
 
     pub async fn write_block(
-        &mut self,
+        &self,
         region_id: RegionId,
         id: BlockId,
         data: &[u8],
@@ -168,7 +177,8 @@ impl EfsBlockStorage {
         }
     }
 
-    pub async fn persist_next_id(&mut self, next_id: u64) -> Result<()> {
+    #[tracing::instrument(skip(self))]
+    pub async fn persist_next_id(&self, next_id: u64) -> Result<()> {
         self.write_block(
             METADATA_REGION_ID,
             ALLOCATOR_STATE_BLOCK_ID,
@@ -177,8 +187,9 @@ impl EfsBlockStorage {
         .await
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn allocate_blocks(
-        &mut self,
+        &self,
         _region_id: RegionId,
         count: usize,
     ) -> Result<Vec<BlockId>> {
@@ -188,9 +199,16 @@ impl EfsBlockStorage {
         let first_id = self.next_id.fetch_add(count as u64, Ordering::SeqCst);
         let new_next_id = first_id + count as u64;
 
-        self.persist_next_id(new_next_id)
-            .await
-            .context("Failed to persist next_id before allocation")?;
+        let persisted = self.persisted_id.load(Ordering::SeqCst);
+        if new_next_id > persisted {
+            // Reserve a bunch of blocks at once to reduce sync overhead
+            let reservation_jump = 1000.max(count as u64);
+            let to_persist = first_id + reservation_jump;
+            self.persist_next_id(to_persist)
+                .await
+                .context("Failed to persist next_id before allocation")?;
+            self.persisted_id.store(to_persist, Ordering::SeqCst);
+        }
 
         let mut ids = Vec::with_capacity(count);
         for i in 0..count {
@@ -200,12 +218,12 @@ impl EfsBlockStorage {
         Ok(ids)
     }
 
-    pub async fn allocate_block(&mut self, region_id: RegionId) -> Result<BlockId> {
+    pub async fn allocate_block(&self, region_id: RegionId) -> Result<BlockId> {
         let ids = self.allocate_blocks(region_id, 1).await?;
         Ok(ids[0])
     }
 
-    pub async fn deallocate_block(&mut self, region_id: RegionId, id: BlockId) -> Result<()> {
+    pub async fn deallocate_block(&self, region_id: RegionId, id: BlockId) -> Result<()> {
         let name = self.block_name(region_id, id);
 
         self.backend
@@ -217,7 +235,7 @@ impl EfsBlockStorage {
     }
 
     pub async fn deallocate_blocks(
-        &mut self,
+        &self,
         region_id: RegionId,
         ids: Vec<BlockId>,
     ) -> Result<()> {

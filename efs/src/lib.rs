@@ -47,7 +47,9 @@ pub struct Efs {
     pub cipher: Arc<dyn Cipher>,
     pub key: Vec<u8>,
     pub chunk_size: usize,
+    pub directory_cache: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
 }
+
 
 #[derive(Getters, Setters)]
 pub struct EfsBuilder {
@@ -122,11 +124,17 @@ impl EfsBuilder {
         let index = if let Some(index) = self.index {
             index
         } else {
-            let index_storage = crate::index::BPTreeStorage::new(
+            let cache_backend = Arc::new(crate::storage::memory::MemoryBackend::new());
+            let cached_storage = Arc::new(crate::storage::cache::CacheBackend::new(
+                cache_backend,
                 self.storage.clone(),
+            ));
+            let index_storage = crate::index::BPTreeStorage::new(
+                cached_storage,
                 self.cipher.clone(),
                 self.key.clone(),
                 storage_adapter.next_id(),
+                storage_adapter.persisted_id(),
                 self.chunk_size,
                 BTREE_INDEX_REGION_ID,
                 storage_adapter.allocation_lock(),
@@ -144,6 +152,7 @@ impl EfsBuilder {
             cipher: self.cipher,
             key: self.key,
             chunk_size: self.chunk_size,
+            directory_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
         })
     }
 }
@@ -168,11 +177,20 @@ impl Efs {
             .await
     }
 
-    pub async fn put(&mut self, path: &str, data: &[u8]) -> Result<()> {
+    #[tracing::instrument(skip(self, data))]
+    pub async fn put(&self, path: &str, data: &[u8]) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
 
         if let Some(parent) = crate::path::get_parent(&path) {
-            self.mkdir_p(parent).await?;
+            let needs_mkdir = {
+                let cache = self.directory_cache.lock().await;
+                !cache.contains(parent)
+            };
+            
+            if needs_mkdir {
+                self.mkdir_p(parent).await?;
+                // mkdir_p will update the cache itself
+            }
         }
 
         let mut old_file_info = None;
@@ -197,11 +215,13 @@ impl Efs {
         let chunks: Vec<_> = data.chunks(payload_size).collect();
         let chunk_count = chunks.len();
 
-        let block_ids = self
-            .storage_adapter
-            .allocate_blocks(FILE_DATA_REGION_ID, chunk_count)
-            .await
-            .context("Failed to allocate blocks for file")?;
+        let block_ids = {
+            let _span = tracing::info_span!("allocate_blocks").entered();
+            self.storage_adapter
+                .allocate_blocks(FILE_DATA_REGION_ID, chunk_count)
+                .await
+                .context("Failed to allocate blocks for file")?
+        };
 
         let mut upload_futures = Vec::new();
 
@@ -247,23 +267,27 @@ impl Efs {
             .collect::<Result<Vec<_>>>()
             .context("One or more chunk uploads failed")?;
 
-        if let Err(e) = self
-            .index
-            .put(
-                &path,
-                EfsEntry::File {
-                    file_id: block_ids.first().cloned().unwrap_or(0),
-                    total_size,
-                },
-            )
-            .await
         {
-            // Try to cleanup allocated blocks on index failure to prevent leakage
-            let _ = self
-                .storage_adapter
-                .deallocate_blocks(FILE_DATA_REGION_ID, block_ids)
-                .await;
-            return Err(e).context("Failed to insert file into index; cleaned up allocated blocks");
+            let _span = tracing::info_span!("index_put").entered();
+            if let Err(e) = self
+                .index
+                .put(
+                    &path,
+                    EfsEntry::File {
+                        file_id: block_ids.first().cloned().unwrap_or(0),
+                        total_size,
+                    },
+                )
+                .await
+            {
+                // Try to cleanup allocated blocks on index failure to prevent leakage
+                let _ = self
+                    .storage_adapter
+                    .deallocate_blocks(FILE_DATA_REGION_ID, block_ids)
+                    .await;
+                return Err(e)
+                    .context("Failed to insert file into index; cleaned up allocated blocks");
+            }
         }
 
         // Successfully updated index, now deallocate old blocks if this was an overwrite
@@ -280,7 +304,7 @@ impl Efs {
         Ok(())
     }
 
-    pub async fn mkdir(&mut self, path: &str) -> Result<()> {
+    pub async fn mkdir(&self, path: &str) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
         if let Some(entry) = self.index.get(&path).await? {
             match entry {
@@ -296,10 +320,18 @@ impl Efs {
         self.index.put(&path, EfsEntry::Directory).await
     }
 
-    pub async fn mkdir_p(&mut self, path: &str) -> Result<()> {
+    #[tracing::instrument(skip(self))]
+    pub async fn mkdir_p(&self, path: &str) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
         if path.is_empty() {
             return Ok(());
+        }
+
+        {
+            let cache = self.directory_cache.lock().await;
+            if cache.contains(&path) {
+                return Ok(());
+            }
         }
 
         let parts: Vec<&str> = path.split('/').collect();
@@ -310,6 +342,9 @@ impl Efs {
             }
             current.push_str(part);
             self.mkdir(&current).await?;
+            
+            let mut cache = self.directory_cache.lock().await;
+            cache.insert(current.clone());
         }
         Ok(())
     }
@@ -400,7 +435,7 @@ impl Efs {
         self.index.list_dir(&path).await
     }
 
-    pub async fn delete(&mut self, path: &str) -> Result<()> {
+    pub async fn delete(&self, path: &str) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
         let entry = self
             .index
@@ -436,7 +471,7 @@ impl Efs {
         Ok(())
     }
 
-    pub async fn delete_recursive(&mut self, path: &str) -> Result<()> {
+    pub async fn delete_recursive(&self, path: &str) -> Result<()> {
         let path = crate::path::normalize_path(path)?;
         let entry = self
             .index
@@ -456,7 +491,7 @@ impl Efs {
     }
 
     #[async_recursion]
-    async fn delete_dir_recursive(&mut self, path: &str) -> Result<()> {
+    async fn delete_dir_recursive(&self, path: &str) -> Result<()> {
         let path_str = path.to_string();
         let contents = self.index.list_dir(&path_str).await?;
 
@@ -494,12 +529,14 @@ impl Efs {
         Ok(())
     }
 
-    pub async fn put_recursive(&mut self, local_path: &str, remote_path: &str) -> Result<()> {
+    #[tracing::instrument(skip(self))]
+    pub async fn put_recursive(&self, local_path: &str, remote_path: &str) -> Result<()> {
         let path = std::path::Path::new(local_path);
         if !path.exists() {
             return Err(anyhow!("Local path does not exist: {}", local_path));
         }
 
+        let mut entries = Vec::new();
         if path.is_dir() {
             for entry in walkdir::WalkDir::new(path)
                 .into_iter()
@@ -520,19 +557,32 @@ impl Efs {
                     )
                 })?;
                 remote_item_path.push_str(rel_path_str);
+                entries.push((entry, remote_item_path));
+            }
+        } else {
+            let data = std::fs::read(local_path)?;
+            return self.put(remote_path, &data).await;
+        }
 
+        let upload_futures = entries.into_iter().map(|(entry, remote_item_path)| {
+            async move {
                 if entry.file_type().is_dir() {
-                    // Always try to create the directory, even if rel_path is empty (the root of upload)
                     self.mkdir_p(&remote_item_path).await?;
                 } else {
                     let data = std::fs::read(entry.path())?;
                     self.put(&remote_item_path, &data).await?;
                 }
+                Ok::<(), anyhow::Error>(())
             }
-        } else {
-            let data = std::fs::read(local_path)?;
-            self.put(remote_path, &data).await?;
-        }
+        });
+
+        stream::iter(upload_futures)
+            .buffer_unordered(16) // Upload up to 16 files in parallel
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+
         Ok(())
     }
 }

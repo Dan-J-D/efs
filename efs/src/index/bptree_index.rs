@@ -21,11 +21,15 @@ pub enum IndexEntry {
 
 pub struct BtreeIndex {
     storage: BPTreeStorage,
+    lock: tokio::sync::Mutex<()>,
 }
 
 impl BtreeIndex {
     pub fn new(storage: BPTreeStorage) -> Result<Self> {
-        Ok(Self { storage })
+        Ok(Self {
+            storage,
+            lock: tokio::sync::Mutex::new(()),
+        })
     }
 
     async fn get_tree(&self, region_id: u64) -> Result<BPTree<String, IndexEntry, BPTreeStorage>> {
@@ -54,7 +58,9 @@ impl BtreeIndex {
 
 #[async_trait]
 impl EfsIndex<String, EfsEntry> for BtreeIndex {
+    #[tracing::instrument(skip(self))]
     async fn put(&self, path: &String, value: EfsEntry) -> Result<()> {
+        let _guard = self.lock.lock().await;
         match value {
             EfsEntry::File {
                 file_id,
@@ -124,7 +130,8 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
                     let mut tree = self.get_tree(current_region).await?;
                     match tree.get(last_part).await.map_err(|e| anyhow!("{}", e))? {
                         Some(IndexEntry::Directory { .. }) => {
-                            return Err(anyhow!("Directory '{}' already exists", last_part));
+                            // Idempotent: directory already exists
+                            return Ok(());
                         }
                         Some(IndexEntry::File { .. }) => {
                             return Err(anyhow!("File '{}' already exists", last_part));
@@ -148,6 +155,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     }
 
     async fn get(&self, path: &String) -> Result<Option<EfsEntry>> {
+        let _guard = self.lock.lock().await;
         let parts = match self.normalize_path(path) {
             Ok(p) => p,
             Err(_) => return Ok(None),
@@ -192,6 +200,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     }
 
     async fn list(&self) -> Result<Vec<(String, EfsEntry)>> {
+        let _guard = self.lock.lock().await;
         let mut results = Vec::new();
         self.list_full_recursive(BTREE_INDEX_REGION_ID, "", &mut results)
             .await?;
@@ -199,6 +208,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     }
 
     async fn list_dir(&self, path: &String) -> Result<Vec<(String, EfsEntry)>> {
+        let _guard = self.lock.lock().await;
         let parts = self.normalize_path(path)?;
         let mut current_region = BTREE_INDEX_REGION_ID;
 
@@ -233,6 +243,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     }
 
     async fn delete(&self, path: &String) -> Result<()> {
+        let _guard = self.lock.lock().await;
         let parts = self.normalize_path(path)?;
         if parts.is_empty() {
             return Err(anyhow!("Cannot delete root directory"));
@@ -257,6 +268,7 @@ impl EfsIndex<String, EfsEntry> for BtreeIndex {
     }
 
     async fn delete_region(&self, path: &String) -> Result<()> {
+        let _guard = self.lock.lock().await;
         let parts = self.normalize_path(path)?;
         let mut current_region = BTREE_INDEX_REGION_ID;
 

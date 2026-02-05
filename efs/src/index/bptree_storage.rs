@@ -15,6 +15,7 @@ pub struct BPTreeStorage {
     pub cipher: Arc<dyn Cipher>,
     pub key: Vec<u8>,
     pub next_id: Arc<AtomicU64>,
+    pub persisted_id: Arc<AtomicU64>,
     pub chunk_size: usize,
     pub region_id: RegionId,
     pub allocation_lock: Arc<Mutex<()>>,
@@ -26,6 +27,7 @@ impl BPTreeStorage {
         cipher: Arc<dyn Cipher>,
         key: Vec<u8>,
         next_id: Arc<AtomicU64>,
+        persisted_id: Arc<AtomicU64>,
         chunk_size: usize,
         region_id: RegionId,
         allocation_lock: Arc<Mutex<()>>,
@@ -35,6 +37,7 @@ impl BPTreeStorage {
             cipher,
             key,
             next_id,
+            persisted_id,
             chunk_size,
             region_id,
             allocation_lock,
@@ -71,6 +74,7 @@ impl BPTreeStorage {
 impl BlockStorage for BPTreeStorage {
     type Error = StorageError;
 
+    #[tracing::instrument(skip(self))]
     async fn read_block(&self, id: BlockId) -> Result<Vec<u8>, Self::Error> {
         let name = self.block_name(id);
         let result = self.backend.get(&name).await;
@@ -103,6 +107,7 @@ impl BlockStorage for BPTreeStorage {
         Ok(plaintext)
     }
 
+    #[tracing::instrument(skip(self, data))]
     async fn write_block(&mut self, id: BlockId, data: &[u8]) -> Result<(), Self::Error> {
         let name = self.block_name(id);
         let padded_data = Chunker::pad(
@@ -130,12 +135,21 @@ impl BlockStorage for BPTreeStorage {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn allocate_block(&mut self) -> Result<BlockId, Self::Error> {
         let lock = self.allocation_lock.clone();
         let _guard = lock.lock().await;
         let current_id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let new_next_id = current_id + 1;
-        self.persist_next_id(new_next_id).await?;
+
+        let persisted = self.persisted_id.load(Ordering::SeqCst);
+        if new_next_id > persisted {
+            let reservation_jump = 1000;
+            let to_persist = current_id + reservation_jump;
+            self.persist_next_id(to_persist).await?;
+            self.persisted_id.store(to_persist, Ordering::SeqCst);
+        }
+
         Ok(current_id)
     }
 
