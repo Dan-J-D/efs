@@ -38,6 +38,17 @@ fn test_cli_full_flow() -> Result<(), Box<dyn std::error::Error>> {
     Command::cargo_bin("efs-cli")?
         .arg("--config")
         .arg(&config_path)
+        .arg("mkdir")
+        .arg("--silo-id")
+        .arg("test-silo")
+        .arg("remote")
+        .env("EFS_PASSWORD", "password123")
+        .assert()
+        .success();
+
+    Command::cargo_bin("efs-cli")?
+        .arg("--config")
+        .arg(&config_path)
         .arg("put")
         .arg("--silo-id")
         .arg("test-silo")

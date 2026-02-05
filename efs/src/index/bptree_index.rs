@@ -63,7 +63,7 @@ impl EfsIndex for BtreeIndex {
         let mut current_region = BTREE_INDEX_REGION_ID;
 
         for part in parts.iter().take(parts.len() - 1) {
-            let mut tree = self.get_tree(current_region).await?;
+            let tree = self.get_tree(current_region).await?;
 
             match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
@@ -73,16 +73,7 @@ impl EfsIndex for BtreeIndex {
                     return Err(anyhow!("Path component '{}' is a file", part));
                 }
                 None => {
-                    let new_region = self.allocate_region().await?;
-                    tree.insert(
-                        part.clone(),
-                        IndexEntry::Directory {
-                            region_id: new_region,
-                        },
-                    )
-                    .await
-                    .map_err(|e| anyhow!("{}", e))?;
-                    current_region = new_region;
+                    return Err(anyhow!("Path component '{}' does not exist", part));
                 }
             }
         }
@@ -109,10 +100,10 @@ impl EfsIndex for BtreeIndex {
 
         let mut current_region = BTREE_INDEX_REGION_ID;
 
-        for part in parts {
-            let mut tree = self.get_tree(current_region).await?;
+        for part in parts.iter().take(parts.len() - 1) {
+            let tree = self.get_tree(current_region).await?;
 
-            match tree.get(&part).await.map_err(|e| anyhow!("{}", e))? {
+            match tree.get(part).await.map_err(|e| anyhow!("{}", e))? {
                 Some(IndexEntry::Directory { region_id }) => {
                     current_region = region_id;
                 }
@@ -120,16 +111,30 @@ impl EfsIndex for BtreeIndex {
                     return Err(anyhow!("Path component '{}' is a file", part));
                 }
                 None => {
+                    return Err(anyhow!("Path component '{}' does not exist", part));
+                }
+            }
+        }
+
+        if let Some(last_part) = parts.last() {
+            let mut tree = self.get_tree(current_region).await?;
+            match tree.get(last_part).await.map_err(|e| anyhow!("{}", e))? {
+                Some(IndexEntry::Directory { .. }) => {
+                    return Err(anyhow!("Directory '{}' already exists", last_part));
+                }
+                Some(IndexEntry::File { .. }) => {
+                    return Err(anyhow!("File '{}' already exists", last_part));
+                }
+                None => {
                     let new_region = self.allocate_region().await?;
                     tree.insert(
-                        part.clone(),
+                        last_part.clone(),
                         IndexEntry::Directory {
                             region_id: new_region,
                         },
                     )
                     .await
                     .map_err(|e| anyhow!("{}", e))?;
-                    current_region = new_region;
                 }
             }
         }

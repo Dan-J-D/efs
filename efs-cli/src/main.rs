@@ -79,6 +79,12 @@ enum Commands {
         #[arg(short, long)]
         recursive: bool,
     },
+    /// Create a new directory in a silo
+    Mkdir {
+        #[arg(short, long)]
+        silo_id: String,
+        remote_path: String,
+    },
     /// Sync mirrors
     Sync {
         #[arg(short, long)]
@@ -272,6 +278,32 @@ async fn main() -> Result<()> {
                 efs.delete(remote_path).await?;
                 println!("File deleted successfully.");
             }
+        }
+        Commands::Mkdir {
+            silo_id,
+            remote_path,
+        } => {
+            let storage = get_storage(&cfg).await?;
+            let manager = SiloManager::new(
+                Box::new(StandardKdf),
+                Box::new(StandardCipher),
+                Box::new(StandardHasher),
+            );
+
+            let silo_cfg = manager
+                .load_silo(storage.as_ref(), password.as_bytes(), silo_id)
+                .await?;
+
+            let mut efs = Efs::new(
+                storage,
+                Arc::new(StandardCipher),
+                silo_cfg.data_key,
+                silo_cfg.chunk_size,
+            )
+            .await?;
+
+            efs.mkdir(remote_path).await?;
+            println!("Directory created successfully.");
         }
         Commands::Sync { silo_id: _ } => {
             println!("Syncing mirrors...");

@@ -57,7 +57,12 @@ enum AppState {
     ConfirmDelete {
         path: String,
     },
+    Move {
+        source_path: String,
+        dest_path: String,
+    },
     Deleting,
+    Moving,
     Error(String),
 }
 
@@ -431,6 +436,19 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                                     }
                                 }
                             }
+                            KeyCode::Char('m') if app.efs.is_some() => {
+                                if let Some(i) = app.file_list_state.selected() {
+                                    if let Some(item) = current_view.get(i) {
+                                        if let FileItem::File(_) = item {
+                                            let full_path = app.get_full_path(item);
+                                            app.state = AppState::Move {
+                                                source_path: full_path.clone(),
+                                                dest_path: full_path,
+                                            };
+                                        }
+                                    }
+                                }
+                            }
                             KeyCode::Enter => {
                                 if let Some(i) = app.file_list_state.selected() {
                                     if let Some(item) = current_view.get(i) {
@@ -756,6 +774,49 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                         }
                         _ => {}
                     },
+                    AppState::Move {
+                        source_path,
+                        dest_path,
+                    } => match key.code {
+                        KeyCode::Esc => app.state = AppState::Main,
+                        KeyCode::Enter => {
+                            let src = source_path.clone();
+                            let dst = dest_path.clone();
+
+                            app.state = AppState::Moving;
+                            // Force draw to show "Moving..."
+                            terminal.draw(|f| ui(f, app))?;
+
+                            if let Some(efs) = &mut app.efs {
+                                // "logically deletes the data and uploads it"
+                                match efs.get(&src).await {
+                                    Ok(data) => {
+                                        if let Err(e) = efs.put(&dst, &data).await {
+                                            app.state = AppState::Error(e.to_string());
+                                        } else {
+                                            if let Err(e) = efs.delete(&src).await {
+                                                app.state = AppState::Error(format!(
+                                                    "Failed to delete source after upload: {}",
+                                                    e
+                                                ));
+                                            } else {
+                                                let _ = app.refresh_files().await;
+                                                app.state = AppState::Main;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => app.state = AppState::Error(e.to_string()),
+                                }
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            dest_path.push(c);
+                        }
+                        KeyCode::Backspace => {
+                            dest_path.pop();
+                        }
+                        _ => {}
+                    },
                     AppState::Download {
                         remote_path,
                         local_path,
@@ -804,7 +865,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::R
                         }
                         _ => {}
                     },
-                    AppState::Deleting => {}
+                    AppState::Deleting | AppState::Moving => {}
                     AppState::Error(_) => match key.code {
                         KeyCode::Esc | KeyCode::Enter => {
                             app.state = AppState::Login;
@@ -894,12 +955,50 @@ fn ui(f: &mut Frame, app: &mut App) {
             }
 
             let footer_text = if app.efs.is_some() {
-                "q: quit | b: backends | s: silos | r: refresh | u: upload | d: download | x: delete | enter: open dir"
+                "q: quit | b: backends | s: silos | r: refresh | u: upload | d: download | m: move | x: delete | enter: open dir"
             } else {
                 "q: quit | b: backends | s: silos"
             };
             let footer = Paragraph::new(footer_text).block(Block::default().borders(Borders::ALL));
             f.render_widget(footer, chunks[2]);
+        }
+        AppState::Move {
+            source_path,
+            dest_path,
+        } => {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(5)
+                .constraints(
+                    [
+                        Constraint::Length(3),
+                        Constraint::Length(3),
+                        Constraint::Min(0),
+                    ]
+                    .as_ref(),
+                )
+                .split(size);
+
+            let src_widget = Paragraph::new(source_path.as_str()).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Source Path (Internal)"),
+            );
+            let dst_widget = Paragraph::new(dest_path.as_str()).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Destination Path (Internal)")
+                    .border_style(
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
+                    ),
+            );
+
+            f.render_widget(src_widget, chunks[0]);
+            f.render_widget(dst_widget, chunks[1]);
+            f.render_widget(
+                Paragraph::new("Enter: Move (Upload & Delete) | Esc: Cancel"),
+                chunks[2],
+            );
         }
         AppState::ManageBackends => {
             let chunks = Layout::default()
@@ -1163,6 +1262,13 @@ fn ui(f: &mut Frame, app: &mut App) {
             let block = Block::default().borders(Borders::ALL).title("Deleting");
             let paragraph =
                 Paragraph::new("Deleting directory recursively... please wait.").block(block);
+            f.render_widget(paragraph, size);
+        }
+        AppState::Moving => {
+            let block = Block::default().borders(Borders::ALL).title("Moving");
+            let paragraph =
+                Paragraph::new("Moving data (downloading, uploading, deleting)... please wait.")
+                    .block(block);
             f.render_widget(paragraph, size);
         }
         AppState::Error(msg) => {

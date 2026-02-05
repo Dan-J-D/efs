@@ -15,9 +15,12 @@ async fn test_recursive_delete() {
         .unwrap();
 
     // Create some files and directories
+    efs.mkdir("/a").await.unwrap();
+    efs.mkdir("/a/b").await.unwrap();
     efs.put("/a/b/c.txt", b"content c").await.unwrap();
     efs.put("/a/d.txt", b"content d").await.unwrap();
     efs.put("/e.txt", b"content e").await.unwrap();
+    efs.mkdir("/a/f").await.unwrap();
     efs.put("/a/f/g.txt", b"content g").await.unwrap();
 
     // Verify they exist
@@ -55,6 +58,7 @@ async fn test_recursive_delete() {
 
     // Explicitly test region deletion for BtreeIndex
     let count_before = backend.list().await.unwrap().len();
+    efs.mkdir("/sub").await.unwrap();
     efs.put("/sub/1.txt", b"1").await.unwrap();
     efs.put("/sub/2.txt", b"2").await.unwrap();
     let count_middle = backend.list().await.unwrap().len();

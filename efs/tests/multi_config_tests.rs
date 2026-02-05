@@ -67,6 +67,8 @@ async fn test_local_btree_config() {
         .unwrap();
 
     let data = b"local + btree index test data";
+    efs.mkdir("/dir1").await.unwrap();
+    efs.mkdir("/dir1/dir2").await.unwrap();
     efs.put("/dir1/dir2/test_file", data).await.unwrap();
 
     let retrieved = efs.get("/dir1/dir2/test_file").await.unwrap();

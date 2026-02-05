@@ -21,6 +21,7 @@ async fn test_directory_deletion_leak() {
 
     // 1. Create a large directory structure
     // We want enough entries to cause B-Tree splits in the directory's index region
+    efs.mkdir("/work").await.unwrap();
     for i in 0..100 {
         let path = format!("/work/file_{}.txt", i);
         let data = format!("content {}", i);
