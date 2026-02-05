@@ -1,4 +1,4 @@
-use efs::crypto::standard::StandardCipher;
+use efs::crypto::Aes256GcmCipher;
 use efs::storage::local::LocalBackend;
 use efs::{Efs, DEFAULT_CHUNK_SIZE};
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use tempfile::tempdir;
 async fn test_next_id_persistence() {
     let tmp = tempdir().unwrap();
     let storage = Arc::new(LocalBackend::new(tmp.path()).unwrap());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
     let chunk_size = DEFAULT_CHUNK_SIZE;
 

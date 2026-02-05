@@ -1,4 +1,4 @@
-use efs::crypto::standard::StandardCipher;
+use efs::crypto::Aes256GcmCipher;
 use efs::index::{BPTreeStorage, BtreeIndex};
 use efs::storage::local::LocalBackend;
 use efs::{Efs, EfsBlockStorage, BTREE_INDEX_REGION_ID, DEFAULT_CHUNK_SIZE};
@@ -10,7 +10,7 @@ async fn test_efs_builder_custom_index() {
     let temp_dir = TempDir::new().unwrap();
     let backend: Arc<dyn efs::storage::StorageBackend> =
         Arc::new(LocalBackend::new(temp_dir.path()).unwrap());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
     let chunk_size = DEFAULT_CHUNK_SIZE;
 

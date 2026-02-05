@@ -122,7 +122,11 @@ impl EfsBlockStorage {
 
         let padded_data = Chunker::pad(
             data.to_vec(),
-            UniformEnvelope::payload_size(self.chunk_size),
+            UniformEnvelope::payload_size(
+                self.chunk_size,
+                self.cipher.nonce_size(),
+                self.cipher.tag_size(),
+            ),
         );
 
         let mut ad = Vec::with_capacity(16);

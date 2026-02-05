@@ -6,13 +6,13 @@ pub const DEFAULT_CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
 
 #[derive(Serialize, Deserialize)]
 pub struct UniformEnvelope {
-    pub nonce: [u8; 12],
-    pub tag: [u8; 16],
+    pub nonce: Vec<u8>,
+    pub tag: Vec<u8>,
     pub ciphertext: Vec<u8>,
 }
 
 impl UniformEnvelope {
-    pub fn new(nonce: [u8; 12], tag: [u8; 16], ciphertext: Vec<u8>) -> Self {
+    pub fn new(nonce: Vec<u8>, tag: Vec<u8>, ciphertext: Vec<u8>) -> Self {
         Self {
             nonce,
             tag,
@@ -20,10 +20,10 @@ impl UniformEnvelope {
         }
     }
 
-    pub fn payload_size(chunk_size: usize) -> usize {
+    pub fn payload_size(chunk_size: usize, nonce_size: usize, tag_size: usize) -> usize {
         let dummy_empty = Self {
-            nonce: [0u8; 12],
-            tag: [0u8; 16],
+            nonce: vec![0u8; nonce_size],
+            tag: vec![0u8; tag_size],
             ciphertext: vec![],
         };
         let empty_size = bincode::serialized_size(&dummy_empty).unwrap() as usize;
@@ -85,14 +85,24 @@ mod tests {
     fn test_envelope_size() {
         // Test various chunk sizes to ensure the payload calculation is correct
         // and robust against potential bincode configuration changes.
+        let nonce_size = 12;
+        let tag_size = 16;
         for chunk_size in [128, 1024, 1024 * 1024] {
-            let p_size = UniformEnvelope::payload_size(chunk_size);
-            let env = UniformEnvelope::new([0u8; 12], [0u8; 16], vec![0u8; p_size]);
+            let p_size = UniformEnvelope::payload_size(chunk_size, nonce_size, tag_size);
+            let env = UniformEnvelope::new(
+                vec![0u8; nonce_size],
+                vec![0u8; tag_size],
+                vec![0u8; p_size],
+            );
             let serialized = env.serialize(chunk_size).unwrap();
             assert_eq!(serialized.len(), chunk_size);
 
             // Verify that p_size + 1 would exceed chunk_size
-            let env_too_big = UniformEnvelope::new([0u8; 12], [0u8; 16], vec![0u8; p_size + 1]);
+            let env_too_big = UniformEnvelope::new(
+                vec![0u8; nonce_size],
+                vec![0u8; tag_size],
+                vec![0u8; p_size + 1],
+            );
             let serialized_too_big = bincode::serialize(&env_too_big).unwrap();
             assert!(serialized_too_big.len() > chunk_size);
         }
@@ -101,11 +111,17 @@ mod tests {
 
 pub struct Chunker {
     chunk_size: usize,
+    nonce_size: usize,
+    tag_size: usize,
 }
 
 impl Chunker {
-    pub fn new(chunk_size: usize) -> Self {
-        Self { chunk_size }
+    pub fn new(chunk_size: usize, nonce_size: usize, tag_size: usize) -> Self {
+        Self {
+            chunk_size,
+            nonce_size,
+            tag_size,
+        }
     }
 
     pub fn pad(mut data: Vec<u8>, target_size: usize) -> Vec<u8> {
@@ -118,7 +134,8 @@ impl Chunker {
     }
 
     pub fn split(&self, data: &[u8]) -> Vec<Vec<u8>> {
-        let payload_size = UniformEnvelope::payload_size(self.chunk_size);
+        let payload_size =
+            UniformEnvelope::payload_size(self.chunk_size, self.nonce_size, self.tag_size);
         data.chunks(payload_size).map(|c| c.to_vec()).collect()
     }
 }

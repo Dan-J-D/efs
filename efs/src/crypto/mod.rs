@@ -1,12 +1,14 @@
 use anyhow::Result;
 
 pub trait Cipher: Send + Sync {
+    fn nonce_size(&self) -> usize;
+    fn tag_size(&self) -> usize;
     fn encrypt(
         &self,
         key: &[u8],
         ad: &[u8],
         plaintext: &[u8],
-    ) -> Result<(Vec<u8>, [u8; 12], [u8; 16])>;
+    ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>)>;
     fn decrypt(
         &self,
         key: &[u8],
@@ -25,4 +27,10 @@ pub trait Hasher: Send + Sync {
     fn hash(&self, data: &[u8]) -> Vec<u8>;
 }
 
-pub mod standard;
+pub mod cipher;
+pub mod hash;
+pub mod kdf;
+
+pub use cipher::*;
+pub use hash::*;
+pub use kdf::*;

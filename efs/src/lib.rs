@@ -103,7 +103,7 @@ impl Default for EfsBuilder<String, EfsEntry, Arc<dyn EfsIndex<String, EfsEntry>
     fn default() -> Self {
         Self {
             storage: Arc::new(crate::storage::memory::MemoryBackend::new()),
-            cipher: Arc::new(crate::crypto::standard::StandardCipher),
+            cipher: Arc::new(crate::crypto::Aes256GcmCipher),
             key: vec![0u8; 32],
             chunk_size: DEFAULT_CHUNK_SIZE,
             index: None,
@@ -324,7 +324,11 @@ where
             }
         }
 
-        let payload_size = UniformEnvelope::payload_size(self.chunk_size);
+        let payload_size = UniformEnvelope::payload_size(
+            self.chunk_size,
+            self.cipher.nonce_size(),
+            self.cipher.tag_size(),
+        );
         let total_size = data.len() as u64;
         let chunks: Vec<_> = data.chunks(payload_size).collect();
         let chunk_count = chunks.len();
@@ -404,7 +408,11 @@ where
 
         // Successfully updated index, now deallocate old blocks if this was an overwrite
         if let Some((old_id, old_size)) = old_file_info {
-            let payload_size = UniformEnvelope::payload_size(self.chunk_size);
+            let payload_size = UniformEnvelope::payload_size(
+            self.chunk_size,
+            self.cipher.nonce_size(),
+            self.cipher.tag_size(),
+        );
             let num_blocks = (old_size as usize).div_ceil(payload_size);
             let old_ids: Vec<u64> = (old_id..old_id + num_blocks as u64).collect();
             let _ = self
@@ -468,7 +476,11 @@ where
             EfsEntry::Directory => return Err(anyhow!("Path is a directory")),
         };
 
-        let payload_size = UniformEnvelope::payload_size(self.chunk_size);
+        let payload_size = UniformEnvelope::payload_size(
+            self.chunk_size,
+            self.cipher.nonce_size(),
+            self.cipher.tag_size(),
+        );
                 let num_blocks = (total_size as usize).div_ceil(payload_size);
         let block_ids: Vec<u64> = (file_id..file_id + num_blocks as u64).collect();
 
@@ -551,7 +563,11 @@ where
                 file_id,
                 total_size,
             } => {
-                let payload_size = UniformEnvelope::payload_size(self.chunk_size);
+                let payload_size = UniformEnvelope::payload_size(
+            self.chunk_size,
+            self.cipher.nonce_size(),
+            self.cipher.tag_size(),
+        );
         let num_blocks = (total_size as usize).div_ceil(payload_size);
                 (file_id..file_id + num_blocks as u64).collect()
             }

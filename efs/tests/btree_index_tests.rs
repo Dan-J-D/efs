@@ -1,4 +1,4 @@
-use efs::crypto::standard::StandardCipher;
+use efs::crypto::Aes256GcmCipher;
 use efs::index::{BPTreeStorage, BtreeIndex};
 use efs::storage::local::LocalBackend;
 use efs::{EfsEntry, EfsIndex, BTREE_INDEX_REGION_ID};
@@ -11,7 +11,7 @@ async fn test_btree_index_hierarchical() {
     let temp_dir = TempDir::new().unwrap();
     let backend: Arc<dyn efs::storage::StorageBackend> =
         Arc::new(LocalBackend::new(temp_dir.path()).unwrap());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
     let chunk_size = 1024 * 1024;
     let next_id = Arc::new(AtomicU64::new(10)); // Start from 10 to avoid collisions with reserved blocks
@@ -226,7 +226,7 @@ async fn test_btree_index_no_implicit_creation() {
     let temp_dir = TempDir::new().unwrap();
     let backend: Arc<dyn efs::storage::StorageBackend> =
         Arc::new(LocalBackend::new(temp_dir.path()).unwrap());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
     let chunk_size = 1024 * 1024;
     let next_id = Arc::new(AtomicU64::new(10));

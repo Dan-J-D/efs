@@ -123,7 +123,11 @@ impl BlockStorage for BPTreeStorage {
         let name = self.block_name(id);
         let padded_data = Chunker::pad(
             data.to_vec(),
-            UniformEnvelope::payload_size(self.chunk_size),
+            UniformEnvelope::payload_size(
+                self.chunk_size,
+                self.cipher.nonce_size(),
+                self.cipher.tag_size(),
+            ),
         );
 
         let mut ad = Vec::with_capacity(16);
@@ -184,7 +188,11 @@ impl BlockStorage for BPTreeStorage {
     }
 
     fn block_size(&self) -> usize {
-        UniformEnvelope::payload_size(self.chunk_size)
+        UniformEnvelope::payload_size(
+            self.chunk_size,
+            self.cipher.nonce_size(),
+            self.cipher.tag_size(),
+        )
     }
 
     async fn sync(&mut self) -> Result<(), Self::Error> {

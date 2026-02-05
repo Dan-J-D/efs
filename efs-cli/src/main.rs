@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use efs::crypto::standard::{StandardCipher, StandardHasher, StandardKdf};
+use efs::crypto::{Aes256GcmCipher, Blake3Hasher, Argon2Kdf};
 use efs::mirror::MirrorOrchestrator;
 use efs::silo::SiloManager;
 use efs::storage::local::LocalBackend;
@@ -132,9 +132,9 @@ async fn main() -> Result<()> {
 
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(StandardKdf),
-                Box::new(StandardCipher),
-                Box::new(StandardHasher),
+                Box::new(Argon2Kdf),
+                Box::new(Aes256GcmCipher),
+                Box::new(Blake3Hasher),
             );
 
             manager
@@ -182,9 +182,9 @@ async fn main() -> Result<()> {
         } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(StandardKdf),
-                Box::new(StandardCipher),
-                Box::new(StandardHasher),
+                Box::new(Argon2Kdf),
+                Box::new(Aes256GcmCipher),
+                Box::new(Blake3Hasher),
             );
 
             let silo_cfg = manager
@@ -193,7 +193,7 @@ async fn main() -> Result<()> {
 
             let efs = Efs::new(
                 storage,
-                Arc::new(StandardCipher),
+                Arc::new(Aes256GcmCipher),
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )
@@ -209,9 +209,9 @@ async fn main() -> Result<()> {
         } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(StandardKdf),
-                Box::new(StandardCipher),
-                Box::new(StandardHasher),
+                Box::new(Argon2Kdf),
+                Box::new(Aes256GcmCipher),
+                Box::new(Blake3Hasher),
             );
 
             let silo_cfg = manager
@@ -220,7 +220,7 @@ async fn main() -> Result<()> {
 
             let efs = Efs::new(
                 storage,
-                Arc::new(StandardCipher),
+                Arc::new(Aes256GcmCipher),
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )
@@ -232,9 +232,9 @@ async fn main() -> Result<()> {
         Commands::Ls { silo_id } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(StandardKdf),
-                Box::new(StandardCipher),
-                Box::new(StandardHasher),
+                Box::new(Argon2Kdf),
+                Box::new(Aes256GcmCipher),
+                Box::new(Blake3Hasher),
             );
 
             let silo_cfg = manager
@@ -243,7 +243,7 @@ async fn main() -> Result<()> {
 
             let efs = Efs::new(
                 storage,
-                Arc::new(StandardCipher),
+                Arc::new(Aes256GcmCipher),
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )
@@ -259,9 +259,9 @@ async fn main() -> Result<()> {
         } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(StandardKdf),
-                Box::new(StandardCipher),
-                Box::new(StandardHasher),
+                Box::new(Argon2Kdf),
+                Box::new(Aes256GcmCipher),
+                Box::new(Blake3Hasher),
             );
 
             let silo_cfg = manager
@@ -270,7 +270,7 @@ async fn main() -> Result<()> {
 
             let efs = Efs::new(
                 storage,
-                Arc::new(StandardCipher),
+                Arc::new(Aes256GcmCipher),
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )
@@ -290,9 +290,9 @@ async fn main() -> Result<()> {
         } => {
             let storage = get_storage(&cfg).await?;
             let manager = SiloManager::new(
-                Box::new(StandardKdf),
-                Box::new(StandardCipher),
-                Box::new(StandardHasher),
+                Box::new(Argon2Kdf),
+                Box::new(Aes256GcmCipher),
+                Box::new(Blake3Hasher),
             );
 
             let silo_cfg = manager
@@ -301,7 +301,7 @@ async fn main() -> Result<()> {
 
             let efs = Efs::new(
                 storage,
-                Arc::new(StandardCipher),
+                Arc::new(Aes256GcmCipher),
                 silo_cfg.data_key,
                 silo_cfg.chunk_size,
             )

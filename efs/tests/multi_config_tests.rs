@@ -1,4 +1,4 @@
-use efs::crypto::standard::StandardCipher;
+use efs::crypto::Aes256GcmCipher;
 use efs::index::{BPTreeStorage, BtreeIndex};
 use efs::storage::local::LocalBackend;
 use efs::storage::lru::LruBackend;
@@ -12,7 +12,7 @@ use tempfile::tempdir;
 #[tokio::test(flavor = "multi_thread")]
 async fn test_memory_kv_config() {
     let storage = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
 
     let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
@@ -33,7 +33,7 @@ async fn test_memory_kv_config() {
 async fn test_local_btree_config() {
     let tmp = tempdir().unwrap();
     let storage = Arc::new(LocalBackend::new(tmp.path()).unwrap());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
 
     let efs_temp = Efs::new(
@@ -76,7 +76,7 @@ async fn test_local_btree_config() {
 async fn test_lru_memory_kv_config() {
     let inner_storage = Arc::new(MemoryBackend::new());
     let storage = Arc::new(LruBackend::new(inner_storage, 10, None)); // 10 blocks capacity
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
 
     let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)
@@ -94,7 +94,7 @@ async fn test_lru_memory_kv_config() {
 async fn test_local_kv_persistence() {
     let tmp = tempdir().unwrap();
     let storage = Arc::new(LocalBackend::new(tmp.path()).unwrap());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
 
     let data = b"persistence test data";
@@ -123,7 +123,7 @@ async fn test_local_kv_persistence() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_small_chunks() {
     let storage = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
     let chunk_size = 1024; // 1KB chunks
 
@@ -140,7 +140,7 @@ async fn test_small_chunks() {
 async fn test_s3_mock_config() {
     let store = Arc::new(InMemory::new());
     let storage = Arc::new(S3Backend::new(store));
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
 
     let efs = Efs::new(storage, cipher, key, DEFAULT_CHUNK_SIZE)

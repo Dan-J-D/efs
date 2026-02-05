@@ -1,5 +1,5 @@
 use anyhow::Result;
-use efs::crypto::standard::StandardCipher;
+use efs::crypto::Aes256GcmCipher;
 use efs::crypto::{Hasher, Kdf};
 use efs::silo::SiloManager;
 use efs::storage::memory::MemoryBackend;
@@ -32,7 +32,7 @@ impl Hasher for MockHasher {
 async fn test_custom_kdf_hasher() {
     let kdf = Box::new(MockKdf);
     let hasher = Box::new(MockHasher);
-    let cipher = Box::new(StandardCipher);
+    let cipher = Box::new(Aes256GcmCipher);
 
     let silo_manager = SiloManager::new(kdf, cipher, hasher);
     let storage = Arc::new(MemoryBackend::new());

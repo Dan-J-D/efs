@@ -1,4 +1,4 @@
-use efs::crypto::standard::StandardCipher;
+use efs::crypto::Aes256GcmCipher;
 use efs::storage::memory::MemoryBackend;
 use efs::Efs;
 use std::sync::Arc;
@@ -11,7 +11,7 @@ async fn verify_no_leaks(_efs: &Efs) {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_conclusive_lifecycle() {
     let backend = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
     let chunk_size = 1024; // Small chunk size to trigger more blocks
 
@@ -65,7 +65,7 @@ async fn test_conclusive_lifecycle() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_concurrent_puts() {
     let backend = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
     let chunk_size = 1024;
 
@@ -125,7 +125,7 @@ impl efs::EfsIndex<String, efs::EfsEntry> for FailingIndex {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cleanup_on_index_failure() {
     let backend = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
     let chunk_size = 1024;
 

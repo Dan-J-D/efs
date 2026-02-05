@@ -1,4 +1,4 @@
-use efs::crypto::standard::StandardCipher;
+use efs::crypto::Aes256GcmCipher;
 use efs::storage::memory::MemoryBackend;
 use efs::{Efs, StorageBackend};
 use std::sync::Arc;
@@ -6,7 +6,7 @@ use std::sync::Arc;
 #[tokio::test(flavor = "multi_thread")]
 async fn test_recursive_delete() {
     let backend = Arc::new(MemoryBackend::new());
-    let cipher = Arc::new(StandardCipher);
+    let cipher = Arc::new(Aes256GcmCipher);
     let key = vec![0u8; 32];
     let chunk_size = 1024; // Small chunk size for testing
 

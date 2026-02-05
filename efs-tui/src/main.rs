@@ -5,7 +5,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use efs::crypto::standard::{StandardCipher, StandardHasher, StandardKdf};
+use efs::crypto::{Aes256GcmCipher, Blake3Hasher, Argon2Kdf};
 use efs::mirror::MirrorOrchestrator;
 use efs::silo::SiloManager;
 use efs::storage::local::LocalBackend;
@@ -146,9 +146,9 @@ impl App {
 
         let storage = get_storage(cfg).await?;
         let manager = SiloManager::new(
-            Box::new(StandardKdf),
-            Box::new(StandardCipher),
-            Box::new(StandardHasher),
+            Box::new(Argon2Kdf),
+            Box::new(Aes256GcmCipher),
+            Box::new(Blake3Hasher),
         );
 
         let silo_cfg = manager
@@ -157,7 +157,7 @@ impl App {
 
         let efs = Efs::new(
             storage,
-            Arc::new(StandardCipher),
+            Arc::new(Aes256GcmCipher),
             silo_cfg.data_key,
             silo_cfg.chunk_size,
         )
@@ -202,9 +202,9 @@ impl App {
             .ok_or_else(|| anyhow!("Config not loaded"))?;
         let storage = get_storage(cfg).await?;
         let manager = SiloManager::new(
-            Box::new(StandardKdf),
-            Box::new(StandardCipher),
-            Box::new(StandardHasher),
+            Box::new(Argon2Kdf),
+            Box::new(Aes256GcmCipher),
+            Box::new(Blake3Hasher),
         );
 
         let mut data_key = vec![0u8; 32];

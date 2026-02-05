@@ -1,5 +1,5 @@
 use anyhow::Result;
-use efs::crypto::standard::{StandardCipher, StandardKdf};
+use efs::crypto::{Aes256GcmCipher, Argon2Kdf};
 use efs::crypto::{Cipher, Kdf};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -15,8 +15,8 @@ pub struct Config {
 #[derive(Serialize, Deserialize)]
 struct EncryptedConfig {
     ciphertext: Vec<u8>,
-    nonce: [u8; 12],
-    tag: [u8; 16],
+    nonce: Vec<u8>,
+    tag: Vec<u8>,
 }
 
 impl Default for Config {
@@ -56,9 +56,9 @@ pub fn load_config<P: AsRef<Path>>(path: P, password: &[u8]) -> Result<Config> {
 
     if let Ok(encrypted) = bincode::deserialize::<EncryptedConfig>(&content) {
         let mut key = [0u8; 32];
-        StandardKdf.derive(password, b"efs_config_salt", &mut key)?;
+        Argon2Kdf.derive(password, b"efs_config_salt", &mut key)?;
 
-        let plaintext = StandardCipher.decrypt(
+        let plaintext = Aes256GcmCipher.decrypt(
             &key,
             b"config",
             &encrypted.nonce,
@@ -78,8 +78,8 @@ pub fn load_config<P: AsRef<Path>>(path: P, password: &[u8]) -> Result<Config> {
         // Try encrypted JSON as well? Probably not necessary if we are moving away
         if let Ok(encrypted) = serde_json::from_str::<EncryptedConfig>(&content_str) {
             let mut key = [0u8; 32];
-            StandardKdf.derive(password, b"efs_config_salt", &mut key)?;
-            let plaintext = StandardCipher.decrypt(
+            Argon2Kdf.derive(password, b"efs_config_salt", &mut key)?;
+            let plaintext = Aes256GcmCipher.decrypt(
                 &key,
                 b"config",
                 &encrypted.nonce,
@@ -102,9 +102,9 @@ pub fn save_config<P: AsRef<Path>>(path: P, config: &Config, password: &[u8]) ->
 
     let plaintext = bincode::serialize(config)?;
     let mut key = [0u8; 32];
-    StandardKdf.derive(password, b"efs_config_salt", &mut key)?;
+    Argon2Kdf.derive(password, b"efs_config_salt", &mut key)?;
 
-    let (ciphertext, nonce, tag) = StandardCipher.encrypt(&key, b"config", &plaintext)?;
+    let (ciphertext, nonce, tag) = Aes256GcmCipher.encrypt(&key, b"config", &plaintext)?;
 
     let encrypted = EncryptedConfig {
         ciphertext,
