@@ -3,7 +3,6 @@ use rand::{thread_rng, RngCore};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
-pub const ENVELOPE_OVERHEAD: usize = 12 + 16 + 8; // nonce + tag + bincode vec len
 
 #[derive(Serialize, Deserialize)]
 pub struct UniformEnvelope {
@@ -22,7 +21,43 @@ impl UniformEnvelope {
     }
 
     pub fn payload_size(chunk_size: usize) -> usize {
-        chunk_size - ENVELOPE_OVERHEAD
+        let dummy_empty = Self {
+            nonce: [0u8; 12],
+            tag: [0u8; 16],
+            ciphertext: vec![],
+        };
+        let empty_size = bincode::serialized_size(&dummy_empty).unwrap() as usize;
+
+        // Base struct size is the size of the envelope with an empty ciphertext,
+        // minus the size of the empty vector's length encoding.
+        // For bincode 1.x, serialized_size(vec![0; p]) = base_struct_size + serialized_size(len(p)) + p.
+        let empty_vec: Vec<u8> = vec![];
+        let empty_vec_len_size = bincode::serialized_size(&empty_vec).unwrap() as usize;
+        let base_struct_size = empty_size - empty_vec_len_size;
+
+        // Binary search to find the maximum payload size p such that:
+        // base_struct_size + serialized_size(len(p)) + p <= chunk_size
+        let mut low = 0;
+        let mut high = chunk_size.saturating_sub(base_struct_size);
+        let mut best_p = 0;
+
+        while low <= high {
+            let mid = low + (high - low) / 2;
+            // bincode serializes Vec length as a u64.
+            let len_len = bincode::serialized_size(&(mid as u64)).unwrap() as usize;
+            let total = base_struct_size + len_len + mid;
+
+            if total <= chunk_size {
+                best_p = mid;
+                low = mid + 1;
+            } else {
+                if mid == 0 {
+                    break;
+                }
+                high = mid - 1;
+            }
+        }
+        best_p
     }
 
     pub fn serialize(&self, chunk_size: usize) -> Result<Vec<u8>> {
@@ -39,6 +74,28 @@ impl UniformEnvelope {
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self> {
         Ok(bincode::deserialize(bytes)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_envelope_size() {
+        // Test various chunk sizes to ensure the payload calculation is correct
+        // and robust against potential bincode configuration changes.
+        for chunk_size in [128, 1024, 1024 * 1024] {
+            let p_size = UniformEnvelope::payload_size(chunk_size);
+            let env = UniformEnvelope::new([0u8; 12], [0u8; 16], vec![0u8; p_size]);
+            let serialized = env.serialize(chunk_size).unwrap();
+            assert_eq!(serialized.len(), chunk_size);
+
+            // Verify that p_size + 1 would exceed chunk_size
+            let env_too_big = UniformEnvelope::new([0u8; 12], [0u8; 16], vec![0u8; p_size + 1]);
+            let serialized_too_big = bincode::serialize(&env_too_big).unwrap();
+            assert!(serialized_too_big.len() > chunk_size);
+        }
     }
 }
 
